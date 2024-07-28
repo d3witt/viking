@@ -7,13 +7,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/d3witt/viking/cli/command"
+	"github.com/d3witt/viking/cli/command/key"
+	"github.com/d3witt/viking/config"
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-colorable"
 	"github.com/mattn/go-isatty"
 	"github.com/urfave/cli/v2"
-	"github.com/workdate-dev/viking/cli/command"
-	"github.com/workdate-dev/viking/cli/command/key"
-	"github.com/workdate-dev/viking/config"
 )
 
 func main() {

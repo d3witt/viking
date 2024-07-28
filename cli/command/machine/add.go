@@ -6,9 +6,9 @@ import (
 	"net"
 	"time"
 
+	"github.com/d3witt/viking/cli/command"
+	"github.com/d3witt/viking/config"
 	"github.com/urfave/cli/v2"
-	"github.com/workdate-dev/viking/cli/command"
-	"github.com/workdate-dev/viking/config"
 )
 
 func NewAddCmd(vikingCli *command.Cli) *cli.Command {

@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/d3witt/viking/cli/command"
+	"github.com/d3witt/viking/config"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
-	"github.com/workdate-dev/viking/cli/command"
-	"github.com/workdate-dev/viking/config"
 	"golang.org/x/crypto/ssh"
 )
 

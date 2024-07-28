@@ -1,8 +1,8 @@
 package key
 
 import (
+	"github.com/d3witt/viking/cli/command"
 	"github.com/urfave/cli/v2"
-	"github.com/workdate-dev/viking/cli/command"
 )
 
 func NewCmd(vikingCli *command.Cli) *cli.Command {

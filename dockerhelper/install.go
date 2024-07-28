@@ -3,7 +3,7 @@ package dockerhelper
 import (
 	"fmt"
 
-	"github.com/workdate-dev/viking/sshexec"
+	"github.com/d3witt/viking/sshexec"
 )
 
 func isDockerInstalled(e *sshexec.Executor) bool {

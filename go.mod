@@ -1,4 +1,4 @@
-module github.com/workdate-dev/viking
+module github.com/d3witt/viking
 
 go 1.22.1
 

@@ -3,7 +3,7 @@ package command
 import (
 	"io"
 
-	"github.com/workdate-dev/viking/config"
+	"github.com/d3witt/viking/config"
 )
 
 type Cli struct {

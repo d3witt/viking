@@ -6,11 +6,11 @@ import (
 	"net"
 	"time"
 
+	"github.com/d3witt/viking/dockerhelper"
+	"github.com/d3witt/viking/sshexec"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
-	"github.com/workdate-dev/viking/dockerhelper"
-	"github.com/workdate-dev/viking/sshexec"
 	"golang.org/x/crypto/ssh"
 )
 

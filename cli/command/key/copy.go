@@ -3,9 +3,9 @@ package key
 import (
 	"fmt"
 
+	"github.com/d3witt/viking/cli/command"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
-	"github.com/workdate-dev/viking/cli/command"
 	"golang.design/x/clipboard"
 )
 
