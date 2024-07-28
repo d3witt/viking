@@ -9,6 +9,7 @@ import (
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/cli/command/key"
+	"github.com/d3witt/viking/cli/command/machine"
 	"github.com/d3witt/viking/config"
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-colorable"
@@ -46,6 +47,7 @@ func main() {
 		Version: "v1.0",
 		Commands: []*cli.Command{
 			key.NewCmd(vikingCli),
+			machine.NewCmd(vikingCli),
 		},
 		Suggest:   true,
 		Reader:    vikingCli.In,

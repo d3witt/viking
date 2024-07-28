@@ -33,6 +33,19 @@ func (c *Config) ListMachines() []Machine {
 	return machines
 }
 
+// GetMachine returns a machine by name or host.
+func (c *Config) GetMachine(machine string) (Machine, error) {
+	if m, err := c.GetMachineByName(machine); err == nil {
+		return m, nil
+	}
+
+	if m, err := c.GetMachineByHost(net.ParseIP(machine)); err == nil {
+		return m, nil
+	}
+
+	return Machine{}, fmt.Errorf("Machine not found: %s", machine)
+}
+
 func (c *Config) GetMachineByName(name string) (Machine, error) {
 	if machine, ok := c.Machines[name]; ok {
 		return machine, nil
@@ -63,20 +76,12 @@ func (c *Config) AddMachine(machine Machine) error {
 
 // RemoveMachine removes a machine from the config by name or host.
 func (c *Config) RemoveMachine(machine string) error {
-	name := ""
-
-	for n, m := range c.Machines {
-		if n == machine || m.Host.String() == machine {
-			name = n
-			break
-		}
+	m, err := c.GetMachine(machine)
+	if err != nil {
+		return err
 	}
 
-	if name == "" {
-		return fmt.Errorf("Machine not found: %s", machine)
-	}
-
-	delete(c.Machines, name)
+	delete(c.Machines, m.Name)
 
 	return c.Save()
 }
@@ -123,19 +128,4 @@ func (m *Machine) Configure(ctx context.Context, sshClient *ssh.Client) error {
 	}
 
 	return nil
-}
-
-func (m *Machine) SSHClient(c *Config) (*ssh.Client, error) {
-	var private, passphrase string
-	if m.Key != "" {
-		key, err := c.GetKeyByName(m.Key)
-		if err != nil {
-			return nil, fmt.Errorf("Failed to retrieve key: %w", err)
-		}
-
-		private = key.Private
-		passphrase = key.Passphrase
-	}
-
-	return sshexec.SshClient(m.Host.String(), m.User, private, passphrase)
 }

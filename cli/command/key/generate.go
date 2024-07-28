@@ -21,8 +21,9 @@ func NewGenerateCmd(vikingCli *command.Cli) *cli.Command {
 		Usage: "Generate a new SSH key",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:  "name",
-				Usage: "Key name",
+				Name:    "name",
+				Usage:   "Key name",
+				Aliases: []string{"n"},
 			},
 		},
 		Action: func(ctx *cli.Context) error {
