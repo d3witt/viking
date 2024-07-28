@@ -48,6 +48,7 @@ func (c *Config) GetMachine(machine string) (Machine, error) {
 
 func (c *Config) GetMachineByName(name string) (Machine, error) {
 	if machine, ok := c.Machines[name]; ok {
+		machine.Name = name
 		return machine, nil
 	}
 
@@ -55,8 +56,9 @@ func (c *Config) GetMachineByName(name string) (Machine, error) {
 }
 
 func (c *Config) GetMachineByHost(host net.IP) (Machine, error) {
-	for _, machine := range c.Machines {
+	for name, machine := range c.Machines {
 		if machine.Host.Equal(host) {
+			machine.Name = name
 			return machine, nil
 		}
 	}

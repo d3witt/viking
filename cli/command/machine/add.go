@@ -80,6 +80,7 @@ func runAdd(vikingCli *command.Cli, host, name, user, key string) error {
 		Name:      name,
 		Host:      hostIp,
 		User:      user,
+		Key:       key,
 		CreatedAt: time.Now(),
 	}); err != nil {
 		return fmt.Errorf("Failed to create machine: %w", err)
