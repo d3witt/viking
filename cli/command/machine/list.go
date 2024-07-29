@@ -29,6 +29,7 @@ func listMachines(vikingCli *command.Cli) error {
 		{
 			"NAME",
 			"HOST",
+			"KEY",
 			"CREATED",
 		},
 	}
@@ -37,6 +38,7 @@ func listMachines(vikingCli *command.Cli) error {
 		data = append(data, []string{
 			machine.Name,
 			machine.Host.String(),
+			machine.Key,
 			humanize.Time(machine.CreatedAt),
 		})
 	}

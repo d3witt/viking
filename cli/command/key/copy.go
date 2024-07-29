@@ -12,7 +12,7 @@ import (
 func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "copy",
-		Usage:     "Copy private|public key to clipboard",
+		Usage:     "Copy public key (or private with --private) to clipboard.",
 		Args:      true,
 		ArgsUsage: "NAME",
 		Flags: []cli.Flag{
@@ -20,19 +20,10 @@ func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 				Name:  "private",
 				Usage: "Copy private key",
 			},
-			&cli.BoolFlag{
-				Name:  "public",
-				Usage: "Copy public key",
-			},
 		},
 		Action: func(ctx *cli.Context) error {
 			name := ctx.Args().First()
 			private := ctx.Bool("private")
-			public := ctx.Bool("public")
-
-			if private == public {
-				return errors.New("Please specify either --private or --public")
-			}
 
 			return runCopy(vikingCli, name, private)
 		},
