@@ -3,10 +3,12 @@ package machine
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/sshexec"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/term"
 )
 
 func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
@@ -15,16 +17,24 @@ func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 		Description: "Execute shell command on machine",
 		Args:        true,
 		ArgsUsage:   "MACHINE \"COMMAND\"",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    "tty",
+				Aliases: []string{"t"},
+				Usage:   "Allocate a pseudo-TTY",
+			},
+		},
 		Action: func(ctx *cli.Context) error {
 			machine := ctx.Args().First()
-			cmd := ctx.Args().Get(1)
+			cmd := strings.Join(ctx.Args().Tail(), " ")
+			tty := ctx.Bool("tty")
 
-			return runExecute(vikingCli, machine, cmd)
+			return runExecute(vikingCli, machine, cmd, tty)
 		},
 	}
 }
 
-func runExecute(vikingCli *command.Cli, machine string, cmd string) error {
+func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) error {
 	if machine == "" {
 		return errors.New("Name is required")
 	}
@@ -51,14 +61,44 @@ func runExecute(vikingCli *command.Cli, machine string, cmd string) error {
 	}
 	defer client.Close()
 
-	output, err := sshexec.Command(sshexec.NewExecutor(client), cmd).CombinedOutput()
-	if err != nil {
-		if _, ok := err.(*sshexec.ExitError); !ok {
+	sshCmd := sshexec.Command(sshexec.NewExecutor(client), cmd)
+
+	if tty {
+		w, h, err := vikingCli.TerminalSize()
+		if err != nil {
 			return err
 		}
+
+		termState, err := term.GetState(vikingCli.OutFd)
+		if err != nil {
+			return fmt.Errorf("Failed to get terminal state: %w", err)
+		}
+		defer term.Restore(vikingCli.OutFd, termState)
+
+		term.MakeRaw(vikingCli.OutFd)
+		if err := sshCmd.StartInteractive(cmd, vikingCli.In, vikingCli.Out, vikingCli.Err, w, h); err != nil {
+			if exitErr, ok := err.(*sshexec.ExitError); ok {
+				if exitErr.Status != 0 {
+					return fmt.Errorf("Failed to execute command: %w", err)
+				}
+			}
+
+			return fmt.Errorf("Failed to execute command: %w", err)
+		}
+
+		return nil
 	}
 
-	fmt.Fprintln(vikingCli.Out, output)
+	output, err := sshCmd.CombinedOutput()
+	if err != nil {
+		if _, ok := err.(*sshexec.ExitError); !ok {
+			return fmt.Errorf("Failed to execute command: %w", err)
+		}
+
+		return err
+	}
+
+	fmt.Fprint(vikingCli.Out, string(output))
 
 	return nil
 }

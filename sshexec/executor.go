@@ -47,6 +47,37 @@ func (e *Executor) Start(cmd string, in io.Reader, out, stderr io.Writer) error 
 	return nil
 }
 
+func (e *Executor) StartInteractive(cmd string, in io.Reader, out, stderr io.Writer, h, w int) error {
+	if e.session != nil {
+		return errors.New("Failed to start cmd: command already started")
+	}
+
+	session, err := e.client.NewSession()
+	if err != nil {
+		return fmt.Errorf("Failed to create SSH session: %w", err)
+	}
+
+	session.Stdin = in
+	session.Stdout = out
+	session.Stderr = stderr
+
+	modes := ssh.TerminalModes{
+		ssh.ECHO:          1,
+		ssh.TTY_OP_ISPEED: 14400,
+		ssh.TTY_OP_OSPEED: 14400,
+	}
+	if err := session.RequestPty("xterm-256color", h, w, modes); err != nil {
+		return err
+	}
+
+	e.session = session
+	if err := e.session.Run(cmd); err != nil {
+		return fmt.Errorf("Failed to start SSH session: %w", err)
+	}
+
+	return nil
+}
+
 func (e *Executor) Wait() error {
 	if e.session == nil {
 		return errors.New("Failed to wait command: command not started")

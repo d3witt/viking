@@ -37,7 +37,9 @@ func main() {
 	vikingCli := &command.Cli{
 		Config: &cfg,
 		In:     os.Stdin,
+		InFd:   int(os.Stdin.Fd()),
 		Out:    os.Stdout,
+		OutFd:  int(os.Stdout.Fd()),
 		Err:    os.Stderr,
 	}
 
