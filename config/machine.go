@@ -1,7 +1,7 @@
 package config
 
 import (
-	"fmt"
+	"errors"
 	"net"
 	"time"
 )
@@ -14,9 +14,11 @@ type Machine struct {
 	CreatedAt time.Time
 }
 
-var MachineNotFoundError = fmt.Errorf("machine not found")
-var MachineAlreadyExistsError = fmt.Errorf("machine already exists")
-var MachineNameOrHostRequiredError = fmt.Errorf("machine name or host is required")
+var (
+	ErrMachineNotFound           = errors.New("machine not found")
+	ErrMachineAlreadyExists      = errors.New("machine already exists")
+	ErrMachineNameOrHostRequired = errors.New("machine name or host is required")
+)
 
 func (c *Config) ListMachines() []Machine {
 	machines := make([]Machine, 0, len(c.Machines))
@@ -32,7 +34,7 @@ func (c *Config) ListMachines() []Machine {
 // GetMachine returns a machine by name or host.
 func (c *Config) GetMachine(machine string) (Machine, error) {
 	if machine == "" {
-		return Machine{}, MachineNameOrHostRequiredError
+		return Machine{}, ErrMachineNameOrHostRequired
 	}
 
 	if m, err := c.GetMachineByName(machine); err == nil {
@@ -43,7 +45,7 @@ func (c *Config) GetMachine(machine string) (Machine, error) {
 		return m, nil
 	}
 
-	return Machine{}, MachineNotFoundError
+	return Machine{}, ErrMachineNotFound
 }
 
 func (c *Config) GetMachineByName(name string) (Machine, error) {
@@ -52,7 +54,7 @@ func (c *Config) GetMachineByName(name string) (Machine, error) {
 		return machine, nil
 	}
 
-	return Machine{}, MachineNotFoundError
+	return Machine{}, ErrMachineNotFound
 }
 
 func (c *Config) GetMachineByHost(host net.IP) (Machine, error) {
@@ -63,13 +65,13 @@ func (c *Config) GetMachineByHost(host net.IP) (Machine, error) {
 		}
 	}
 
-	return Machine{}, MachineNotFoundError
+	return Machine{}, ErrMachineNotFound
 }
 
 func (c *Config) AddMachine(machine Machine) error {
 	_, err := c.GetMachine(machine.Name)
 	if err == nil {
-		return MachineAlreadyExistsError
+		return ErrMachineAlreadyExists
 	}
 
 	c.Machines[machine.Name] = machine

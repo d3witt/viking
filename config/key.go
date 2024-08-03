@@ -1,7 +1,7 @@
 package config
 
 import (
-	"fmt"
+	"errors"
 	"time"
 )
 
@@ -13,7 +13,11 @@ type Key struct {
 	CreatedAt  time.Time
 }
 
-var KeyNameRequiredError = fmt.Errorf("key name is required")
+var (
+	ErrKeyNameRequired = errors.New("key name is required")
+	ErrKeyNotFound     = errors.New("key not found")
+	ErrKeyExist        = errors.New("key already exists")
+)
 
 func (c *Config) ListKeys() []Key {
 	keys := make([]Key, 0, len(c.Keys))
@@ -29,7 +33,7 @@ func (c *Config) ListKeys() []Key {
 func (c *Config) AddKey(key Key) error {
 	_, err := c.GetKeyByName(key.Name)
 	if err == nil {
-		return fmt.Errorf("key already exists: %s", key.Name)
+		return ErrKeyExist
 	}
 
 	c.Keys[key.Name] = key
@@ -50,7 +54,7 @@ func (c *Config) RemoveKey(name string) error {
 
 func (c *Config) GetKeyByName(name string) (Key, error) {
 	if name == "" {
-		return Key{}, KeyNameRequiredError
+		return Key{}, ErrKeyNameRequired
 	}
 
 	if key, ok := c.Keys[name]; ok {
@@ -58,5 +62,5 @@ func (c *Config) GetKeyByName(name string) (Key, error) {
 		return key, nil
 	}
 
-	return Key{}, fmt.Errorf("key not found: %s", name)
+	return Key{}, ErrKeyNotFound
 }

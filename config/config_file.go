@@ -29,10 +29,9 @@ func ConfigDir() (string, error) {
 	}
 
 	if !dirExists(path) {
-		if err := os.MkdirAll(path, 0755); err != nil {
+		if err := os.MkdirAll(path, 0o755); err != nil {
 			return "", fmt.Errorf("failed to create config dir: %w", err)
 		}
-
 	}
 
 	return path, nil
@@ -82,12 +81,12 @@ func readConfigFile(filename string) ([]byte, error) {
 }
 
 func writeConfigFile(filename string, data []byte) error {
-	err := os.MkdirAll(filepath.Dir(filename), 0771)
+	err := os.MkdirAll(filepath.Dir(filename), 0o771)
 	if err != nil {
 		return pathError(err)
 	}
 
-	cfgFile, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600) // cargo coded from setup
+	cfgFile, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600) // cargo coded from setup
 	if err != nil {
 		return err
 	}
@@ -124,7 +123,6 @@ func pathError(err error) error {
 		if p := findRegularFile(pathError.Path); p != "" {
 			return fmt.Errorf("remove or rename regular file `%s` (must be a directory)", p)
 		}
-
 	}
 	return err
 }
