@@ -1,7 +1,6 @@
 package machine
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/d3witt/viking/cli/command"
@@ -22,12 +21,8 @@ func NewRmCmd(vikingCli *command.Cli) *cli.Command {
 }
 
 func runRemove(vikingCli *command.Cli, machine string) error {
-	if machine == "" {
-		return errors.New("Name cannot be empty")
-	}
-
 	if err := vikingCli.Config.RemoveMachine(machine); err != nil {
-		return fmt.Errorf("Failed to remove machine: %w", err)
+		return err
 	}
 
 	fmt.Fprintln(vikingCli.Out, "Machine removed from this computer.")

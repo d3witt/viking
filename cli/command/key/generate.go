@@ -10,7 +10,6 @@ import (
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/config"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/crypto/ssh"
 )
@@ -41,12 +40,7 @@ func runGenerate(vikingCli *command.Cli, name string) error {
 
 	private, public, err := generateSSHKeyPair()
 	if err != nil {
-		return fmt.Errorf("Failed to generate ssh key: %w", err)
-	}
-
-	_, err = vikingCli.Config.GetKeyByName(name)
-	if err == nil {
-		return errors.New("Key with this name arleady exist")
+		return err
 	}
 
 	if err = vikingCli.Config.AddKey(

@@ -29,11 +29,11 @@ func (e *Executor) Addr() net.Addr {
 
 func (e *Executor) Start(cmd string, in io.Reader, out, stderr io.Writer) error {
 	if e.session != nil {
-		return errors.New("Failed to start cmd: command already stared")
+		return errors.New("command already stared")
 	}
 	session, err := e.client.NewSession()
 	if err != nil {
-		return fmt.Errorf("Failed to create SSH session: %w", err)
+		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
 	session.Stdin = in
 	session.Stdout = out
@@ -41,7 +41,7 @@ func (e *Executor) Start(cmd string, in io.Reader, out, stderr io.Writer) error 
 
 	e.session = session
 	if err := e.session.Start(cmd); err != nil {
-		return fmt.Errorf("Failed to start SSH session: %w", err)
+		return fmt.Errorf("failed to start SSH session: %w", err)
 	}
 
 	return nil
@@ -49,12 +49,12 @@ func (e *Executor) Start(cmd string, in io.Reader, out, stderr io.Writer) error 
 
 func (e *Executor) StartInteractive(cmd string, in io.Reader, out, stderr io.Writer, h, w int) error {
 	if e.session != nil {
-		return errors.New("Failed to start cmd: command already started")
+		return errors.New("command already started")
 	}
 
 	session, err := e.client.NewSession()
 	if err != nil {
-		return fmt.Errorf("Failed to create SSH session: %w", err)
+		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
 
 	session.Stdin = in
@@ -72,7 +72,7 @@ func (e *Executor) StartInteractive(cmd string, in io.Reader, out, stderr io.Wri
 
 	e.session = session
 	if err := e.session.Run(cmd); err != nil {
-		return fmt.Errorf("Failed to start SSH session: %w", err)
+		return fmt.Errorf("failed to start SSH session: %w", err)
 	}
 
 	return nil
@@ -80,7 +80,7 @@ func (e *Executor) StartInteractive(cmd string, in io.Reader, out, stderr io.Wri
 
 func (e *Executor) Wait() error {
 	if e.session == nil {
-		return errors.New("Failed to wait command: command not started")
+		return errors.New("failed to wait command: command not started")
 	}
 
 	if err := e.session.Wait(); err != nil {
@@ -91,7 +91,7 @@ func (e *Executor) Wait() error {
 			}
 		}
 
-		return fmt.Errorf("Failed to wait SSH session: %w", err)
+		return fmt.Errorf("failed to wait SSH session: %w", err)
 	}
 
 	return nil
@@ -99,7 +99,7 @@ func (e *Executor) Wait() error {
 
 func (e *Executor) Close() error {
 	if e.session == nil {
-		return errors.New("Failed to wait command: command not started")
+		return errors.New("failed to wait command: command not started")
 	}
 
 	return e.Close()
@@ -150,7 +150,7 @@ func authorizeWithKey(key, passphrase string) (ssh.AuthMethod, error) {
 func authorizeWithSSHAgent() (ssh.AuthMethod, error) {
 	conn, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
 	if err != nil {
-		return nil, fmt.Errorf("Failed to connect to ssh-agent: %w", err)
+		return nil, fmt.Errorf("failed to connect to ssh-agent: %w", err)
 	}
 	defer conn.Close()
 

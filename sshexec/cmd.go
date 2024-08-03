@@ -17,6 +17,7 @@ type Cmd struct {
 	Args           []string
 	Stdin          io.Reader
 	Stdout, Stderr io.Writer
+	NoLogs         bool
 }
 
 func Command(exec *Executor, name string, args ...string) *Cmd {
@@ -24,6 +25,7 @@ func Command(exec *Executor, name string, args ...string) *Cmd {
 		Executor: exec,
 		Name:     name,
 		Args:     args,
+		NoLogs:   false,
 	}
 }
 
@@ -39,12 +41,16 @@ func (c *Cmd) Run() error {
 	}
 
 	if err := c.Start(); err != nil {
-		slog.Error("Failed to start command", "message", b.String(), "cmd", c.argv())
+		if !c.NoLogs {
+			slog.Error("Failed to start command", "message", b.String(), "cmd", c.argv())
+		}
 		return err
 	}
 
 	if err := c.Wait(); err != nil {
-		slog.Error("Failed to run command", "message", b.String(), "cmd", c.argv())
+		if !c.NoLogs {
+			slog.Error("Failed to run command", "message", b.String(), "cmd", c.argv())
+		}
 		return err
 	}
 
@@ -53,7 +59,7 @@ func (c *Cmd) Run() error {
 
 func (c *Cmd) Output() (string, error) {
 	if c.Stdout != nil {
-		return "", errors.New("Stdout already set")
+		return "", errors.New("stdout already set")
 	}
 
 	var b bytes.Buffer
@@ -75,10 +81,10 @@ func (w *singleWriter) Write(p []byte) (int, error) {
 
 func (c *Cmd) CombinedOutput() (string, error) {
 	if c.Stdout != nil {
-		return "", errors.New("Stdout already set")
+		return "", errors.New("stdout already set")
 	}
 	if c.Stdin != nil {
-		return "", errors.New("Stderr already set")
+		return "", errors.New("stderr already set")
 	}
 
 	var b singleWriter
@@ -107,5 +113,5 @@ func (e ExitError) Error() string {
 		return e.Content
 	}
 
-	return fmt.Sprintf("Exited with status %v", e.Status)
+	return fmt.Sprintf("exited with status %v", e.Status)
 }

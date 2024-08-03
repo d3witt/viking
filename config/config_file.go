@@ -22,7 +22,7 @@ func ConfigDir() (string, error) {
 	} else {
 		b, err := os.UserConfigDir()
 		if err != nil {
-			return "", fmt.Errorf("Failed to retrieve config dir path: %w", err)
+			return "", fmt.Errorf("failed to retrieve config dir path: %w", err)
 		}
 
 		path = filepath.Join(b, "viking")
@@ -30,7 +30,7 @@ func ConfigDir() (string, error) {
 
 	if !dirExists(path) {
 		if err := os.MkdirAll(path, 0755); err != nil {
-			return "", fmt.Errorf("Failed to create config dir: %w", err)
+			return "", fmt.Errorf("failed to create config dir: %w", err)
 		}
 
 	}

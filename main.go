@@ -45,7 +45,7 @@ func main() {
 
 	app := &cli.App{
 		Name:    "viking",
-		Usage:   "Run multiple apps on single machine.",
+		Usage:   "Manage your SSH keys and remote machines",
 		Version: "v1.0",
 		Commands: []*cli.Command{
 			key.NewCmd(vikingCli),
@@ -57,7 +57,7 @@ func main() {
 		ErrWriter: vikingCli.Err,
 		ExitErrHandler: func(ctx *cli.Context, err error) {
 			if err != nil {
-				fmt.Fprintln(ctx.App.Writer, err)
+				fmt.Fprintf(vikingCli.Err, "Error: %v\n", err)
 				os.Exit(0)
 			}
 		},

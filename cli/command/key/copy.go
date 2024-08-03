@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/d3witt/viking/cli/command"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 	"golang.design/x/clipboard"
 )
@@ -31,18 +30,14 @@ func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 }
 
 func runCopy(vikingCli *command.Cli, name string, private bool) error {
-	if name == "" {
-		return errors.New("Name cannot be empty")
-	}
-
 	key, err := vikingCli.Config.GetKeyByName(name)
 	if err != nil {
-		return fmt.Errorf("Failed to retrieve key: %w", err)
+		return err
 	}
 
 	err = clipboard.Init()
 	if err != nil {
-		return fmt.Errorf("Failed to copy key to clipboard: %w", err)
+		return err
 	}
 
 	if private {

@@ -1,7 +1,6 @@
 package machine
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -35,20 +34,16 @@ func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 }
 
 func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) error {
-	if machine == "" {
-		return errors.New("Name is required")
-	}
-
 	m, err := vikingCli.Config.GetMachine(machine)
 	if err != nil {
-		return fmt.Errorf("Failed to get machine: %w", err)
+		return err
 	}
 
 	var private, passphrase string
 	if m.Key != "" {
 		key, err := vikingCli.Config.GetKeyByName(m.Key)
 		if err != nil {
-			return fmt.Errorf("Failed to retrieve key: %w", err)
+			return err
 		}
 
 		private = key.Private
@@ -62,6 +57,7 @@ func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) er
 	defer client.Close()
 
 	sshCmd := sshexec.Command(sshexec.NewExecutor(client), cmd)
+	sshCmd.NoLogs = true
 
 	if tty {
 		w, h, err := vikingCli.TerminalSize()
@@ -71,34 +67,32 @@ func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) er
 
 		termState, err := term.GetState(vikingCli.OutFd)
 		if err != nil {
-			return fmt.Errorf("Failed to get terminal state: %w", err)
+			return fmt.Errorf("failed to get terminal state: %w", err)
 		}
 		defer term.Restore(vikingCli.OutFd, termState)
 
 		term.MakeRaw(vikingCli.OutFd)
-		if err := sshCmd.StartInteractive(cmd, vikingCli.In, vikingCli.Out, vikingCli.Err, w, h); err != nil {
-			if exitErr, ok := err.(*sshexec.ExitError); ok {
-				if exitErr.Status != 0 {
-					return fmt.Errorf("Failed to execute command: %w", err)
-				}
-			}
-
-			return fmt.Errorf("Failed to execute command: %w", err)
+		if err := sshCmd.StartInteractive(cmd, vikingCli.In, vikingCli.Out, vikingCli.Err, w, h); handleSSHError(err) != nil {
+			return err
 		}
 
 		return nil
 	}
 
 	output, err := sshCmd.CombinedOutput()
-	if err != nil {
-		if _, ok := err.(*sshexec.ExitError); !ok {
-			return fmt.Errorf("Failed to execute command: %w", err)
-		}
-
+	if handleSSHError(err) != nil {
 		return err
 	}
 
 	fmt.Fprint(vikingCli.Out, string(output))
 
 	return nil
+}
+
+func handleSSHError(err error) error {
+	if _, ok := err.(*sshexec.ExitError); ok {
+		return nil
+	}
+
+	return err
 }

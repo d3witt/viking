@@ -1,7 +1,6 @@
 package key
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -43,7 +42,7 @@ func NewAddCmd(vikingCli *command.Cli) *cli.Command {
 func runAdd(vikingCli *command.Cli, path, name, passphrase string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("Failed to read file: %w", err)
+		return err
 	}
 
 	var privateKey ssh.Signer
@@ -55,18 +54,13 @@ func runAdd(vikingCli *command.Cli, path, name, passphrase string) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("Failed to parse ssh key: %w", err)
+		return err
 	}
 
 	publicKey := ssh.MarshalAuthorizedKey(privateKey.PublicKey())
 
 	if name == "" {
 		name = command.GenerateRandomName()
-	}
-
-	_, err = vikingCli.Config.GetKeyByName(name)
-	if err == nil {
-		return errors.New("Key with this name arleady exist")
 	}
 
 	if err := vikingCli.Config.AddKey(

@@ -55,25 +55,13 @@ func runAdd(vikingCli *command.Cli, host, name, user, key string) error {
 	if key != "" {
 		_, err := vikingCli.Config.GetKeyByName(key)
 		if err != nil {
-			return fmt.Errorf("Failed to retrieve machine: %w", err)
+			return err
 		}
-	}
-
-	if host == "" {
-		return errors.New("Host cannot be empty")
 	}
 
 	hostIp := net.ParseIP(host)
 	if hostIp == nil {
-		return errors.New("Host must be valid ip address")
-	}
-
-	if m, err := vikingCli.Config.GetMachineByHost(hostIp); err == nil {
-		return fmt.Errorf("Machine with this host already exists: %s", m.Name)
-	}
-
-	if _, err := vikingCli.Config.GetMachineByName(name); err == nil {
-		return errors.New("Machine with this name already exists")
+		return errors.New("host must be valid ip address")
 	}
 
 	if err := vikingCli.Config.AddMachine(config.Machine{
@@ -83,7 +71,7 @@ func runAdd(vikingCli *command.Cli, host, name, user, key string) error {
 		Key:       key,
 		CreatedAt: time.Now(),
 	}); err != nil {
-		return fmt.Errorf("Failed to create machine: %w", err)
+		return err
 	}
 
 	fmt.Fprintf(vikingCli.Out, "Machine %s added.\n", name)
