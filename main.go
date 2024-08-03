@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/d3witt/viking/cli/command"
+	"github.com/d3witt/viking/cli/command/cfg"
 	"github.com/d3witt/viking/cli/command/key"
 	"github.com/d3witt/viking/cli/command/machine"
 	"github.com/d3witt/viking/config"
@@ -28,14 +29,14 @@ func main() {
 		}),
 	))
 
-	cfg, err := config.ParseDefaultConfig()
+	c, err := config.ParseDefaultConfig()
 	if err != nil {
 		fmt.Println(err.Error())
 		return
 	}
 
 	vikingCli := &command.Cli{
-		Config: &cfg,
+		Config: &c,
 		In:     os.Stdin,
 		InFd:   int(os.Stdin.Fd()),
 		Out:    os.Stdout,
@@ -50,6 +51,7 @@ func main() {
 		Commands: []*cli.Command{
 			key.NewCmd(vikingCli),
 			machine.NewCmd(vikingCli),
+			cfg.NewConfigCmd(vikingCli),
 		},
 		Suggest:   true,
 		Reader:    vikingCli.In,
