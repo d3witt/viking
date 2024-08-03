@@ -1,4 +1,4 @@
-# Viking CLI 🗺️
+# Viking 🗺️
 
 ### Simple way to manage your remote machines
 
