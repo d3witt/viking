@@ -49,6 +49,7 @@ func main() {
 		Usage:   "Manage your SSH keys and remote machines",
 		Version: "v1.0",
 		Commands: []*cli.Command{
+			machine.NewExecuteCmd(vikingCli),
 			key.NewCmd(vikingCli),
 			machine.NewCmd(vikingCli),
 			cfg.NewConfigCmd(vikingCli),

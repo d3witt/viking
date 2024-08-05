@@ -17,6 +17,7 @@ VERSION:
    v1.0
 
 COMMANDS:
+   exec     Execute shell command on machine
    key      Manage SSH keys
    machine  Manage your machines
    config   Get config directory path
@@ -60,13 +61,13 @@ Machine deathstar added.
 
 #### 📡 Exec command:
 ```
-$ viking machine exec deathstar echo 1234
+$ viking exec deathstar echo 1234
 1234
 ```
 
 #### 📺 Connect to the machine:
 ```
-$ viking machine exec --tty deathstar /bin/bash
+$ viking exec --tty deathstar /bin/bash
 root@deathstar:~$
 ```
 

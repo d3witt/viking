@@ -12,10 +12,10 @@ import (
 
 func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
-		Name:        "exec",
-		Description: "Execute shell command on machine",
-		Args:        true,
-		ArgsUsage:   "MACHINE \"COMMAND\"",
+		Name:      "exec",
+		Usage:     "Execute shell command on machine",
+		Args:      true,
+		ArgsUsage: "MACHINE \"COMMAND\"",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "tty",
