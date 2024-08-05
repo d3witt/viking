@@ -14,22 +14,15 @@ func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 		Usage:     "Copy public key (or private with --private) to clipboard.",
 		Args:      true,
 		ArgsUsage: "NAME",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:  "private",
-				Usage: "Copy private key",
-			},
-		},
 		Action: func(ctx *cli.Context) error {
 			name := ctx.Args().First()
-			private := ctx.Bool("private")
 
-			return runCopy(vikingCli, name, private)
+			return runCopy(vikingCli, name)
 		},
 	}
 }
 
-func runCopy(vikingCli *command.Cli, name string, private bool) error {
+func runCopy(vikingCli *command.Cli, name string) error {
 	key, err := vikingCli.Config.GetKeyByName(name)
 	if err != nil {
 		return err
@@ -38,12 +31,6 @@ func runCopy(vikingCli *command.Cli, name string, private bool) error {
 	err = clipboard.Init()
 	if err != nil {
 		return err
-	}
-
-	if private {
-		clipboard.Write(clipboard.FmtText, []byte(key.Private))
-		fmt.Fprintln(vikingCli.Out, "Private key copied to your clipboard.")
-		return nil
 	}
 
 	clipboard.Write(clipboard.FmtText, []byte(key.Public))
