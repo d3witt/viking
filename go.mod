@@ -3,7 +3,6 @@ module github.com/d3witt/viking
 go 1.22.1
 
 require (
-	github.com/mattn/go-isatty v0.0.20
 	golang.org/x/crypto v0.25.0
 	golang.org/x/term v0.22.0
 )
@@ -20,8 +19,6 @@ require (
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/dustin/go-humanize v1.0.1
-	github.com/lmittmann/tint v1.0.5
-	github.com/mattn/go-colorable v0.1.13
 	github.com/urfave/cli/v2 v2.27.2
 	golang.design/x/clipboard v0.7.0
 	golang.org/x/sys v0.22.0 // indirect

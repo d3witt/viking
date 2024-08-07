@@ -66,7 +66,7 @@ func runAdd(vikingCli *command.Cli, host, name, user, key string) error {
 
 	if err := vikingCli.Config.AddMachine(config.Machine{
 		Name:      name,
-		Host:      hostIp,
+		Host:      []net.IP{hostIp},
 		User:      user,
 		Key:       key,
 		CreatedAt: time.Now(),

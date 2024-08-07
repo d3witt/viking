@@ -2,20 +2,20 @@ package machine
 
 import (
 	"fmt"
+	"io"
 	"strings"
+	"sync"
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/sshexec"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/term"
 )
 
 func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "exec",
 		Usage:     "Execute shell command on machine",
-		Args:      true,
-		ArgsUsage: "MACHINE \"COMMAND\"",
+		ArgsUsage: "NAME \"COMMAND\"",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "tty",
@@ -34,7 +34,7 @@ func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 }
 
 func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) error {
-	m, err := vikingCli.Config.GetMachine(machine)
+	m, err := vikingCli.Config.GetMachineByName(machine)
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,41 @@ func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) er
 		passphrase = key.Passphrase
 	}
 
-	client, err := sshexec.SshClient(m.Host.String(), m.User, private, passphrase)
+	if tty {
+		if len(m.Host) != 1 {
+			return fmt.Errorf("cannot allocate a pseudo-TTY to multiple hosts")
+		}
+
+		return executeTTY(vikingCli, m.Host[0].String(), m.User, private, passphrase, cmd)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(m.Host))
+
+	for _, host := range m.Host {
+		go func(ip string) {
+			defer wg.Done()
+
+			out := vikingCli.Out
+			errOut := vikingCli.Err
+			if len(m.Host) > 1 {
+				prefix := fmt.Sprintf("%s: ", ip)
+				out = out.WithPrefix(prefix)
+				errOut = errOut.WithPrefix(prefix + "error: ")
+			}
+
+			if err := execute(out, ip, m.User, private, passphrase, cmd); err != nil {
+				fmt.Fprintln(errOut, err.Error())
+			}
+		}(host.String())
+	}
+
+	wg.Wait()
+	return nil
+}
+
+func execute(out io.Writer, ip, user, private, passphrase, cmd string) error {
+	client, err := sshexec.SshClient(ip, user, private, passphrase)
 	if err != nil {
 		return err
 	}
@@ -59,32 +93,39 @@ func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) er
 	sshCmd := sshexec.Command(sshexec.NewExecutor(client), cmd)
 	sshCmd.NoLogs = true
 
-	if tty {
-		w, h, err := vikingCli.TerminalSize()
-		if err != nil {
-			return err
-		}
-
-		termState, err := term.GetState(vikingCli.OutFd)
-		if err != nil {
-			return fmt.Errorf("failed to get terminal state: %w", err)
-		}
-		defer term.Restore(vikingCli.OutFd, termState)
-
-		term.MakeRaw(vikingCli.OutFd)
-		if err := sshCmd.StartInteractive(cmd, vikingCli.In, vikingCli.Out, vikingCli.Err, w, h); handleSSHError(err) != nil {
-			return err
-		}
-
-		return nil
-	}
-
 	output, err := sshCmd.CombinedOutput()
 	if handleSSHError(err) != nil {
 		return err
 	}
 
-	fmt.Fprint(vikingCli.Out, string(output))
+	fmt.Fprint(out, string(output))
+	return nil
+}
+
+func executeTTY(vikingCli *command.Cli, ip, user, private, passphrase, cmd string) error {
+	client, err := sshexec.SshClient(ip, user, private, passphrase)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	sshCmd := sshexec.Command(sshexec.NewExecutor(client), cmd)
+	sshCmd.NoLogs = true
+
+	w, h, err := vikingCli.In.Size()
+	if err != nil {
+		return err
+	}
+
+	if err := vikingCli.Out.MakeRaw(); err != nil {
+		return err
+	}
+	defer vikingCli.Out.Restore()
+
+	err = sshCmd.StartInteractive(cmd, vikingCli.In, vikingCli.Out, vikingCli.Err, w, h)
+	if handleSSHError(err) != nil {
+		return err
+	}
 
 	return nil
 }
@@ -93,6 +134,5 @@ func handleSSHError(err error) error {
 	if _, ok := err.(*sshexec.ExitError); ok {
 		return nil
 	}
-
 	return err
 }

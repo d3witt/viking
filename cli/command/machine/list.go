@@ -1,7 +1,9 @@
 package machine
 
 import (
+	"net"
 	"sort"
+	"strings"
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/dustin/go-humanize"
@@ -28,16 +30,24 @@ func listMachines(vikingCli *command.Cli) error {
 	data := [][]string{
 		{
 			"NAME",
-			"HOST",
+			"HOSTS",
 			"KEY",
 			"CREATED",
 		},
 	}
 
 	for _, machine := range machines {
+		host := strings.Join(func(hosts []net.IP) []string {
+			strs := make([]string, len(hosts))
+			for i, h := range hosts {
+				strs[i] = h.String()
+			}
+			return strs
+		}(machine.Host), ", ")
+
 		data = append(data, []string{
 			machine.Name,
-			machine.Host.String(),
+			host,
 			machine.Key,
 			humanize.Time(machine.CreatedAt),
 		})
