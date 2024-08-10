@@ -34,63 +34,52 @@ func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 }
 
 func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) error {
-	m, err := vikingCli.Config.GetMachineByName(machine)
+	execs, err := vikingCli.MachineExecuters(machine)
+	defer func() {
+		for _, exec := range execs {
+			exec.Close()
+		}
+	}()
+
 	if err != nil {
 		return err
 	}
 
-	var private, passphrase string
-	if m.Key != "" {
-		key, err := vikingCli.Config.GetKeyByName(m.Key)
-		if err != nil {
-			return err
-		}
-
-		private = key.Private
-		passphrase = key.Passphrase
-	}
-
 	if tty {
-		if len(m.Host) != 1 {
+		if len(execs) != 1 {
 			return fmt.Errorf("cannot allocate a pseudo-TTY to multiple hosts")
 		}
 
-		return executeTTY(vikingCli, m.Host[0].String(), m.User, private, passphrase, cmd)
+		return executeTTY(vikingCli, execs[0], cmd)
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(len(m.Host))
+	wg.Add(len(execs))
 
-	for _, host := range m.Host {
-		go func(ip string) {
+	for _, exec := range execs {
+		go func(exec sshexec.Executor) {
 			defer wg.Done()
 
 			out := vikingCli.Out
 			errOut := vikingCli.Err
-			if len(m.Host) > 1 {
-				prefix := fmt.Sprintf("%s: ", ip)
+			if len(execs) > 1 {
+				prefix := fmt.Sprintf("%s: ", exec.Addr())
 				out = out.WithPrefix(prefix)
 				errOut = errOut.WithPrefix(prefix + "error: ")
 			}
 
-			if err := execute(out, ip, m.User, private, passphrase, cmd); err != nil {
+			if err := execute(out, exec, cmd); err != nil {
 				fmt.Fprintln(errOut, err.Error())
 			}
-		}(host.String())
+		}(exec)
 	}
 
 	wg.Wait()
 	return nil
 }
 
-func execute(out io.Writer, ip, user, private, passphrase, cmd string) error {
-	client, err := sshexec.SshClient(ip, user, private, passphrase)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	sshCmd := sshexec.Command(sshexec.NewExecutor(client), cmd)
+func execute(out io.Writer, exec sshexec.Executor, cmd string) error {
+	sshCmd := sshexec.Command(exec, cmd)
 	sshCmd.NoLogs = true
 
 	output, err := sshCmd.CombinedOutput()
@@ -102,14 +91,8 @@ func execute(out io.Writer, ip, user, private, passphrase, cmd string) error {
 	return nil
 }
 
-func executeTTY(vikingCli *command.Cli, ip, user, private, passphrase, cmd string) error {
-	client, err := sshexec.SshClient(ip, user, private, passphrase)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-
-	sshCmd := sshexec.Command(sshexec.NewExecutor(client), cmd)
+func executeTTY(vikingCli *command.Cli, exec sshexec.Executor, cmd string) error {
+	sshCmd := sshexec.Command(exec, cmd)
 	sshCmd.NoLogs = true
 
 	w, h, err := vikingCli.In.Size()

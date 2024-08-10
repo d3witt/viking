@@ -11,7 +11,7 @@ import (
 )
 
 type Cmd struct {
-	*Executor
+	Executor
 
 	Name           string
 	Args           []string
@@ -20,7 +20,7 @@ type Cmd struct {
 	NoLogs         bool
 }
 
-func Command(exec *Executor, name string, args ...string) *Cmd {
+func Command(exec Executor, name string, args ...string) *Cmd {
 	return &Cmd{
 		Executor: exec,
 		Name:     name,

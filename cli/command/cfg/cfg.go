@@ -5,6 +5,7 @@ import (
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/config"
+
 	"github.com/urfave/cli/v2"
 )
 

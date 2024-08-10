@@ -4,34 +4,55 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"os"
-	"time"
+	"sync"
 
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/agent"
 )
 
-type Executor struct {
-	client  *ssh.Client
+type Executor interface {
+	Start(cmd string, in io.Reader, out, stderr io.Writer) error
+	StartInteractive(cmd string, in io.Reader, out, stderr io.Writer, h, w int) error
+	Wait() error
+	Close() error
+	Addr() string
+}
+
+type executor struct {
+	host   string
+	client func() (*ssh.Client, error)
+
 	session *ssh.Session
 }
 
-func NewExecutor(client *ssh.Client) *Executor {
-	return &Executor{
-		client: client,
+func NewExecutor(host, user, private, passphrase string) Executor {
+	return &executor{
+		host: host,
+		client: sync.OnceValues(func() (*ssh.Client, error) {
+			client, err := SshClient(host, user, private, passphrase)
+			if err != nil {
+				return nil, err
+			}
+
+			return client, nil
+		}),
 	}
 }
 
-func (e *Executor) Addr() net.Addr {
-	return e.client.RemoteAddr()
+func (e *executor) Addr() string {
+	return e.host
 }
 
-func (e *Executor) Start(cmd string, in io.Reader, out, stderr io.Writer) error {
+func (e *executor) Start(cmd string, in io.Reader, out, stderr io.Writer) error {
+	client, err := e.client()
+	if err != nil {
+		return err
+	}
+
 	if e.session != nil {
 		return errors.New("command already stared")
 	}
-	session, err := e.client.NewSession()
+
+	session, err := client.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
@@ -47,12 +68,17 @@ func (e *Executor) Start(cmd string, in io.Reader, out, stderr io.Writer) error 
 	return nil
 }
 
-func (e *Executor) StartInteractive(cmd string, in io.Reader, out, stderr io.Writer, h, w int) error {
+func (e *executor) StartInteractive(cmd string, in io.Reader, out, stderr io.Writer, h, w int) error {
+	client, err := e.client()
+	if err != nil {
+		return err
+	}
+
 	if e.session != nil {
 		return errors.New("command already started")
 	}
 
-	session, err := e.client.NewSession()
+	session, err := client.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
@@ -78,7 +104,7 @@ func (e *Executor) StartInteractive(cmd string, in io.Reader, out, stderr io.Wri
 	return nil
 }
 
-func (e *Executor) Wait() error {
+func (e *executor) Wait() error {
 	if e.session == nil {
 		return errors.New("failed to wait command: command not started")
 	}
@@ -97,63 +123,17 @@ func (e *Executor) Wait() error {
 	return nil
 }
 
-func (e *Executor) Close() error {
-	if e.session == nil {
-		return errors.New("failed to wait command: command not started")
+func (e *executor) Close() error {
+	if e.session != nil {
+		if err := e.session.Close(); err != nil {
+			return err
+		}
 	}
 
-	return e.Close()
-}
-
-func SshClient(host, user, private, passphrase string) (*ssh.Client, error) {
-	var sshAuth ssh.AuthMethod
-	var err error
-
-	if private != "" {
-		sshAuth, err = authorizeWithKey(private, passphrase)
-	} else {
-		sshAuth, err = authorizeWithSSHAgent()
-	}
+	client, err := e.client()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// Set up SSH client configuration
-	config := &ssh.ClientConfig{
-		User: user,
-		Auth: []ssh.AuthMethod{
-			sshAuth,
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         time.Second * 5,
-	}
-
-	return ssh.Dial("tcp", host+":22", config)
-}
-
-func authorizeWithKey(key, passphrase string) (ssh.AuthMethod, error) {
-	var signer ssh.Signer
-	var err error
-
-	if passphrase != "" {
-		signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(key), []byte(passphrase))
-	} else {
-		signer, err = ssh.ParsePrivateKey([]byte(key))
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return ssh.PublicKeys(signer), nil
-}
-
-func authorizeWithSSHAgent() (ssh.AuthMethod, error) {
-	conn, err := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to ssh-agent: %w", err)
-	}
-	defer conn.Close()
-
-	sshAgent := agent.NewClient(conn)
-	return ssh.PublicKeysCallback(sshAgent.Signers), nil
+	return client.Close()
 }
