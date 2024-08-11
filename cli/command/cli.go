@@ -1,15 +1,18 @@
 package command
 
 import (
+	"log/slog"
+
 	"github.com/d3witt/viking/config"
 	"github.com/d3witt/viking/sshexec"
 	"github.com/d3witt/viking/streams"
 )
 
 type Cli struct {
-	Config   *config.Config
-	Out, Err *streams.Out
-	In       *streams.In
+	Config    *config.Config
+	Out, Err  *streams.Out
+	In        *streams.In
+	CmdLogger *slog.Logger
 }
 
 func (c *Cli) MachineExecuters(machine string) ([]sshexec.Executor, error) {

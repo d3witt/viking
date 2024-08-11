@@ -31,6 +31,6 @@ func (s *stream) Restore() error {
 	return err
 }
 
-func (s *stream) Size() (int, int, error) {
+func (s *stream) Size() (width int, height int, err error) {
 	return term.GetSize(s.fd)
 }

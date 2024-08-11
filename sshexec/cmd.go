@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"strings"
 	"sync"
 )
@@ -17,7 +16,6 @@ type Cmd struct {
 	Args           []string
 	Stdin          io.Reader
 	Stdout, Stderr io.Writer
-	NoLogs         bool
 }
 
 func Command(exec Executor, name string, args ...string) *Cmd {
@@ -25,7 +23,6 @@ func Command(exec Executor, name string, args ...string) *Cmd {
 		Executor: exec,
 		Name:     name,
 		Args:     args,
-		NoLogs:   false,
 	}
 }
 
@@ -41,16 +38,26 @@ func (c *Cmd) Run() error {
 	}
 
 	if err := c.Start(); err != nil {
-		if !c.NoLogs {
-			slog.Error("Failed to start command", "message", b.String(), "cmd", c.argv())
-		}
 		return err
 	}
 
 	if err := c.Wait(); err != nil {
-		if !c.NoLogs {
-			slog.Error("Failed to run command", "message", b.String(), "cmd", c.argv())
-		}
+		return err
+	}
+
+	return nil
+}
+
+func (c *Cmd) RunInteractive(in io.Reader, out, stderr io.Writer, w, h int) error {
+	if c.Stderr == nil {
+		c.Stderr = stderr
+	}
+
+	if err := c.StartInteractive(c.argv(), in, out, stderr, w, h); err != nil {
+		return err
+	}
+
+	if err := c.Wait(); err != nil {
 		return err
 	}
 

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 
 	"github.com/d3witt/viking/cli/command"
@@ -21,11 +22,16 @@ func main() {
 		return
 	}
 
+	cmdLogger := slog.New(command.NewCmdLogHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+
 	vikingCli := &command.Cli{
-		Config: &c,
-		In:     streams.StdIn,
-		Out:    streams.StdOut,
-		Err:    streams.StdErr,
+		Config:    &c,
+		In:        streams.StdIn,
+		Out:       streams.StdOut,
+		Err:       streams.StdErr,
+		CmdLogger: cmdLogger,
 	}
 
 	app := &cli.App{
@@ -33,7 +39,11 @@ func main() {
 		Usage:   "Manage your SSH keys and remote machines",
 		Version: "v1.0",
 		Commands: []*cli.Command{
+			// Often used commands
+			machine.NewDeployCmd(vikingCli),
 			machine.NewExecuteCmd(vikingCli),
+
+			// Other commands
 			key.NewCmd(vikingCli),
 			machine.NewCmd(vikingCli),
 			cfg.NewConfigCmd(vikingCli),

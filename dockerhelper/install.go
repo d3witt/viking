@@ -6,7 +6,7 @@ import (
 	"github.com/d3witt/viking/sshexec"
 )
 
-func isDockerInstalled(e sshexec.Executor) bool {
+func IsDockerInstalled(e sshexec.Executor) bool {
 	return sshexec.Command(e, "docker", "-v").Run() == nil
 }
 
@@ -16,7 +16,11 @@ func isSuperUser(e sshexec.Executor) bool {
 	return sshexec.Command(e, cmdStr).Run() == nil
 }
 
-func installDocker(e sshexec.Executor) error {
+func InstallDocker(e sshexec.Executor) error {
+	if !isSuperUser(e) {
+		return fmt.Errorf("not a super user")
+	}
+
 	installCmd := `
         curl -fsSL https://get.docker.com | sudo sh || \
         wget -qO- https://get.docker.com | sudo sh || \
@@ -35,16 +39,6 @@ func installDocker(e sshexec.Executor) error {
 
 	if err := sshexec.Command(e, setupCmd).Run(); err != nil {
 		return fmt.Errorf("failed to setup Docker services and binfmt: %w", err)
-	}
-
-	return nil
-}
-
-func InstallDockerIfMissing(e sshexec.Executor) error {
-	if !isDockerInstalled(e) {
-		if err := installDocker(e); err != nil {
-			return err
-		}
 	}
 
 	return nil

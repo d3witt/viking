@@ -80,7 +80,6 @@ func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) er
 
 func execute(out io.Writer, exec sshexec.Executor, cmd string) error {
 	sshCmd := sshexec.Command(exec, cmd)
-	sshCmd.NoLogs = true
 
 	output, err := sshCmd.CombinedOutput()
 	if handleSSHError(err) != nil {
@@ -93,7 +92,6 @@ func execute(out io.Writer, exec sshexec.Executor, cmd string) error {
 
 func executeTTY(vikingCli *command.Cli, exec sshexec.Executor, cmd string) error {
 	sshCmd := sshexec.Command(exec, cmd)
-	sshCmd.NoLogs = true
 
 	w, h, err := vikingCli.In.Size()
 	if err != nil {
@@ -105,7 +103,7 @@ func executeTTY(vikingCli *command.Cli, exec sshexec.Executor, cmd string) error
 	}
 	defer vikingCli.Out.Restore()
 
-	err = sshCmd.StartInteractive(cmd, vikingCli.In, vikingCli.Out, vikingCli.Err, w, h)
+	err = sshCmd.RunInteractive(vikingCli.In, vikingCli.Out, vikingCli.Err, w, h)
 	if handleSSHError(err) != nil {
 		return err
 	}
