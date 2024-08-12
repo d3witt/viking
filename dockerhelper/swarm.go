@@ -12,10 +12,18 @@ func IsSwarmInitialized(e sshexec.Executor) bool {
 }
 
 func InitDockerSwarm(e sshexec.Executor) error {
-	host := e.Addr()
-	cmdStr := fmt.Sprintf("docker swarm init --advertise-addr %s", host)
+	cmdStr := "docker swarm init"
 	if err := sshexec.Command(e, cmdStr).Run(); err != nil {
 		return fmt.Errorf("failed to initialize Docker Swarm: %w", err)
+	}
+
+	return nil
+}
+
+func RunService(e sshexec.Executor, publish, name, image, cmd string) error {
+	cmdStr := fmt.Sprintf("docker service create --with-registry-auth --name %s %s", name, image)
+	if err := sshexec.Command(e, cmdStr).Run(); err != nil {
+		return fmt.Errorf("failed to run service: %w", err)
 	}
 
 	return nil

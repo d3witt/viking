@@ -2,8 +2,10 @@ package machine
 
 import (
 	"fmt"
+	"net/mail"
 
 	"github.com/d3witt/viking/cli/command"
+	"github.com/d3witt/viking/config"
 	"github.com/d3witt/viking/dockerhelper"
 	"github.com/urfave/cli/v2"
 )
@@ -37,14 +39,17 @@ func runDeploy(vikingCli *command.Cli, machine string) error {
 
 	exec.SetLogger(vikingCli.CmdLogger)
 
-	fmt.Fprintf(vikingCli.Out, "Checking if Docker is installed on %s...\n", machine)
+	fmt.Fprintln(vikingCli.Out, "Verifying Docker install...")
 	if installed := dockerhelper.IsDockerInstalled(exec); !installed {
-		fmt.Fprintf(vikingCli.Out, "Docker is not installed on %s. Installing Docker...\n", machine)
+		fmt.Fprintln(vikingCli.Out, "Docker is not installed. Installing Docker...")
+		if err := dockerhelper.InstallDocker(exec); err != nil {
+			return err
+		}
 	}
 
-	fmt.Fprintf(vikingCli.Out, "Checking if Docker Swarm mode is active on %s...\n", machine)
+	fmt.Fprintln(vikingCli.Out, "Verifying Docker Swarm mode is active...")
 	if initialized := dockerhelper.IsSwarmInitialized(exec); !initialized {
-		fmt.Fprintf(vikingCli.Out, "Docker Swarm mode is not active on %s. Initializing Docker Swarm mode...\n", machine)
+		fmt.Fprintln(vikingCli.Out, "Docker Swarm mode is not active. Initializing Docker Swarm mode...")
 
 		if err := dockerhelper.InitDockerSwarm(exec); err != nil {
 			return err
@@ -52,4 +57,35 @@ func runDeploy(vikingCli *command.Cli, machine string) error {
 	}
 
 	return nil
+}
+
+func validEmail(email string) bool {
+	_, err := mail.ParseAddress(email)
+	return err == nil
+}
+
+func getCertEmail(cli *command.Cli) (string, error) {
+	profile := cli.Config.GetDefaultProfile()
+
+	if profile.Email != "" {
+		return profile.Email, nil
+	}
+
+	email, err := command.Prompt(cli.In, cli.Out, "Enter an email that will be used for SSL certificate", "")
+	if err != nil {
+		return "", err
+	}
+
+	if !validEmail(email) {
+		fmt.Printf("error!")
+		return "", fmt.Errorf("Please, enter a valid email address")
+	}
+
+	if err := cli.Config.SetDefaultProfile(config.Profile{
+		Email: email,
+	}); err != nil {
+		return "", err
+	}
+
+	return email, nil
 }
