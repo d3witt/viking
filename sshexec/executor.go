@@ -93,7 +93,7 @@ func (e *executor) startSession(cmd string, in io.Reader, out, stderr io.Writer,
 	e.session = session
 
 	if e.logger != nil {
-		e.logger.Info("Starting command", "host", e.host, "cmd", cmd)
+		e.logger.Info("starting command", "host", e.host, "cmd", cmd)
 	}
 
 	if err := session.Start(cmd); err != nil {
@@ -146,7 +146,7 @@ func (e *executor) closeSession() error {
 		if err := e.session.Close(); err != nil {
 			if err != io.EOF {
 				if e.logger != nil {
-					e.logger.Error("Failed to close SSH session", "host", e.host, "err", err)
+					e.logger.Error("failed to close SSH session", "host", e.host, "err", err)
 				}
 
 				return err

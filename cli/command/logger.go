@@ -7,8 +7,6 @@ import (
 	"log"
 	"log/slog"
 	"strings"
-
-	"github.com/fatih/color"
 )
 
 type CmdLogHandler struct {
@@ -17,21 +15,16 @@ type CmdLogHandler struct {
 }
 
 func (h *CmdLogHandler) Handle(ctx context.Context, r slog.Record) error {
-	// Define a light gray color
-	lightGray := color.New(color.FgHiBlack).SprintfFunc()
-
-	msg := lightGray(r.Message)
-
 	var sb strings.Builder
 	r.Attrs(func(a slog.Attr) bool {
-		sb.WriteString(lightGray(fmt.Sprintf("%s=%s ", a.Key, fmt.Sprintf("%v", a.Value.Any()))))
+		sb.WriteString(fmt.Sprintf("%s=\"%s\" ", a.Key, fmt.Sprintf("%v", a.Value.Any())))
 		return true
 	})
 
 	if sb.Len() > 0 {
-		h.logger.Printf("%s %s", msg, sb.String())
+		h.logger.Printf("%s: %s", r.Message, sb.String())
 	} else {
-		h.logger.Println(msg)
+		h.logger.Println(r.Message)
 	}
 	return nil
 }
