@@ -40,7 +40,6 @@ func main() {
 		Version: "v1.0",
 		Commands: []*cli.Command{
 			// Often used commands
-			machine.NewDeployCmd(vikingCli),
 			machine.NewExecuteCmd(vikingCli),
 
 			// Other commands
