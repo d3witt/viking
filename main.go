@@ -15,6 +15,8 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+var version = "dev" // set by build script
+
 func main() {
 	c, err := config.ParseDefaultConfig()
 	if err != nil {
@@ -37,7 +39,7 @@ func main() {
 	app := &cli.App{
 		Name:    "viking",
 		Usage:   "Manage your SSH keys and remote machines",
-		Version: "v1.0",
+		Version: version,
 		Commands: []*cli.Command{
 			// Often used commands
 			machine.NewExecuteCmd(vikingCli),
