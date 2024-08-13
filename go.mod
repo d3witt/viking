@@ -3,8 +3,8 @@ module github.com/d3witt/viking
 go 1.22.1
 
 require (
-	golang.org/x/crypto v0.25.0
-	golang.org/x/term v0.22.0
+	golang.org/x/crypto v0.26.0
+	golang.org/x/term v0.23.0
 )
 
 require (
@@ -21,5 +21,5 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/urfave/cli/v2 v2.27.2
 	golang.design/x/clipboard v0.7.0
-	golang.org/x/sys v0.22.0 // indirect
+	golang.org/x/sys v0.23.0 // indirect
 )
