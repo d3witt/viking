@@ -3,6 +3,7 @@ package machine
 import (
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/d3witt/viking/cli/command"
@@ -31,6 +32,7 @@ func listMachines(vikingCli *command.Cli) error {
 		{
 			"NAME",
 			"HOSTS",
+			"PORT",
 			"KEY",
 			"CREATED",
 		},
@@ -48,6 +50,7 @@ func listMachines(vikingCli *command.Cli) error {
 		data = append(data, []string{
 			machine.Name,
 			host,
+			strconv.Itoa(machine.ConnPort()),
 			machine.Key,
 			humanize.Time(machine.CreatedAt),
 		})

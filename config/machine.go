@@ -8,9 +8,18 @@ import (
 type Machine struct {
 	Name      string `toml:"-"`
 	Host      IPList
+	Port      int
 	User      string
 	Key       string
 	CreatedAt time.Time
+}
+
+func (m *Machine) ConnPort() int {
+	if m.Port == 0 {
+		return 22
+	}
+
+	return m.Port
 }
 
 var (

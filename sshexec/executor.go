@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"sync"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -21,24 +20,25 @@ type Executor interface {
 
 // executor allows for the execution of multiple commands, but only one at a time. It is not safe for concurrent use.
 type executor struct {
-	host   string
-	client func() (*ssh.Client, error)
+	host       string
+	port       int
+	user       string
+	private    string
+	passphrase string
+
 	logger *slog.Logger
 
 	session *ssh.Session
+	client  *ssh.Client
 }
 
-func NewExecutor(host, user, private, passphrase string) Executor {
+func NewExecutor(host string, port int, user, private, passphrase string) Executor {
 	return &executor{
-		host: host,
-		client: sync.OnceValues(func() (*ssh.Client, error) {
-			client, err := SshClient(host, user, private, passphrase)
-			if err != nil {
-				return nil, err
-			}
-
-			return client, nil
-		}),
+		host:       host,
+		port:       port,
+		user:       user,
+		private:    private,
+		passphrase: passphrase,
 	}
 }
 
@@ -69,12 +69,16 @@ func (e *executor) startSession(cmd string, in io.Reader, out, stderr io.Writer,
 		return errors.New("another command is currently running")
 	}
 
-	client, err := e.client()
-	if err != nil {
-		return err
+	if e.client == nil {
+		client, err := SshClient(e.host, e.port, e.user, e.private, e.passphrase)
+		if err != nil {
+			return err
+		}
+
+		e.client = client
 	}
 
-	session, err := client.NewSession()
+	session, err := e.client.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
@@ -133,12 +137,11 @@ func (e *executor) Close() error {
 		return err
 	}
 
-	client, err := e.client()
-	if err != nil {
-		return err
+	if e.client != nil {
+		return e.client.Close()
 	}
 
-	return client.Close()
+	return nil
 }
 
 func (e *executor) closeSession() error {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/d3witt/viking/cli/command"
@@ -35,25 +36,39 @@ func NewAddCmd(vikingCli *command.Cli) *cli.Command {
 				Aliases: []string{"k"},
 				Usage:   "SSH key name",
 			},
+			&cli.IntFlag{
+				Name:    "port",
+				Aliases: []string{"p"},
+				Value:   22,
+			},
 		},
 		Action: func(ctx *cli.Context) error {
 			host := ctx.Args().First()
 			name := ctx.String("name")
 			user := ctx.String("user")
 			key := ctx.String("key")
+			port := ctx.Int("port")
 
-			return runAdd(vikingCli, host, name, user, key)
+			return runAdd(vikingCli, host, port, name, user, key)
 		},
 	}
 }
 
-func runAdd(vikingCli *command.Cli, host, name, user, key string) error {
+func runAdd(vikingCli *command.Cli, host string, port int, name, user, key string) error {
 	if name == "" {
 		name = command.GenerateRandomName()
 	}
 
 	if key != "" {
 		_, err := vikingCli.Config.GetKeyByName(key)
+		if err != nil {
+			return err
+		}
+	}
+
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		host = h
+		port, err = strconv.Atoi(p)
 		if err != nil {
 			return err
 		}
@@ -67,6 +82,7 @@ func runAdd(vikingCli *command.Cli, host, name, user, key string) error {
 	if err := vikingCli.Config.AddMachine(config.Machine{
 		Name:      name,
 		Host:      []net.IP{hostIp},
+		Port:      port,
 		User:      user,
 		Key:       key,
 		CreatedAt: time.Now(),

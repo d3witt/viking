@@ -34,7 +34,7 @@ func (c *Cli) MachineExecuters(machine string) ([]sshexec.Executor, error) {
 
 	execs := make([]sshexec.Executor, len(m.Host))
 	for i, host := range m.Host {
-		execs[i] = sshexec.NewExecutor(host.String(), m.User, private, passphrase)
+		execs[i] = sshexec.NewExecutor(host.String(), m.ConnPort(), m.User, private, passphrase)
 	}
 
 	return execs, nil
