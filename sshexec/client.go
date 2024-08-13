@@ -4,13 +4,14 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
 
-func SshClient(host, user, private, passphrase string) (*ssh.Client, error) {
+func SshClient(host string, port int, user, private, passphrase string) (*ssh.Client, error) {
 	var sshAuth ssh.AuthMethod
 	var err error
 
@@ -33,7 +34,9 @@ func SshClient(host, user, private, passphrase string) (*ssh.Client, error) {
 		Timeout:         time.Second * 5,
 	}
 
-	return ssh.Dial("tcp", host+":22", config)
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+
+	return ssh.Dial("tcp", addr, config)
 }
 
 func authorizeWithKey(key, passphrase string) (ssh.AuthMethod, error) {
