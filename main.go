@@ -43,6 +43,7 @@ func main() {
 		Commands: []*cli.Command{
 			// Often used commands
 			machine.NewExecuteCmd(vikingCli),
+			machine.NewCopyCmd(vikingCli),
 
 			// Other commands
 			key.NewCmd(vikingCli),
