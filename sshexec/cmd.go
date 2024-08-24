@@ -42,7 +42,7 @@ func (c *Cmd) Run() error {
 	}
 
 	if err := c.Wait(); err != nil {
-		return err
+		return fmt.Errorf("%w.\n%s", err, b.String())
 	}
 
 	return nil
@@ -90,7 +90,7 @@ func (c *Cmd) CombinedOutput() (string, error) {
 	if c.Stdout != nil {
 		return "", errors.New("stdout already set")
 	}
-	if c.Stdin != nil {
+	if c.Stderr != nil {
 		return "", errors.New("stderr already set")
 	}
 

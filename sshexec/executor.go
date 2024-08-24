@@ -64,7 +64,7 @@ type ptyOptions struct {
 	modes ssh.TerminalModes
 }
 
-func (e *executor) startSession(cmd string, in io.Reader, out, stderr io.Writer, pty *ptyOptions) error {
+func (e *executor) startSession(cmd string, in io.Reader, out, outErr io.Writer, pty *ptyOptions) error {
 	if e.session != nil {
 		return errors.New("another command is currently running")
 	}
@@ -85,7 +85,7 @@ func (e *executor) startSession(cmd string, in io.Reader, out, stderr io.Writer,
 
 	session.Stdin = in
 	session.Stdout = out
-	session.Stderr = stderr
+	session.Stderr = outErr
 
 	if pty != nil {
 		if err := session.RequestPty("xterm-256color", pty.h, pty.w, pty.modes); err != nil {
