@@ -7,7 +7,7 @@ import (
 type Config struct {
 	Keys     map[string]Key
 	Machines map[string]Machine
-	Profiles map[string]Profile
+	Profile  Profile
 }
 
 func defaultConfig() Config {

@@ -2,24 +2,21 @@ package config
 
 import (
 	"errors"
+	"net"
 	"time"
 )
 
 type Machine struct {
 	Name      string `toml:"-"`
-	Host      IPList
-	Port      int
-	User      string
-	Key       string
+	Hosts     []Host
 	CreatedAt time.Time
 }
 
-func (m *Machine) ConnPort() int {
-	if m.Port == 0 {
-		return 22
-	}
-
-	return m.Port
+type Host struct {
+	IP   net.IP
+	Port int
+	User string
+	Key  string
 }
 
 var (

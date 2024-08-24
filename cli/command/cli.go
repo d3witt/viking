@@ -21,9 +21,23 @@ func (c *Cli) MachineExecuters(machine string) ([]sshexec.Executor, error) {
 		return nil, err
 	}
 
+	execs := make([]sshexec.Executor, len(m.Hosts))
+	for i, host := range m.Hosts {
+		exec, err := c.HostExecutor(host)
+		if err != nil {
+			return nil, err
+		}
+
+		execs[i] = exec
+	}
+
+	return execs, nil
+}
+
+func (c *Cli) HostExecutor(host config.Host) (sshexec.Executor, error) {
 	var private, passphrase string
-	if m.Key != "" {
-		key, err := c.Config.GetKeyByName(m.Key)
+	if host.Key != "" {
+		key, err := c.Config.GetKeyByName(host.Key)
 		if err != nil {
 			return nil, err
 		}
@@ -32,10 +46,5 @@ func (c *Cli) MachineExecuters(machine string) ([]sshexec.Executor, error) {
 		passphrase = key.Passphrase
 	}
 
-	execs := make([]sshexec.Executor, len(m.Host))
-	for i, host := range m.Host {
-		execs[i] = sshexec.NewExecutor(host.String(), m.ConnPort(), m.User, private, passphrase)
-	}
-
-	return execs, nil
+	return sshexec.NewExecutor(host.IP.String(), host.Port, host.User, private, passphrase), nil
 }

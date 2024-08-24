@@ -53,7 +53,7 @@ func configFile() (string, error) {
 		return "", err
 	}
 
-	return filepath.Join(path, "viking.toml"), nil
+	return filepath.Join(path, defaultProfileName+".toml"), nil
 }
 
 func ParseDefaultConfig() (Config, error) {
