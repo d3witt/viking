@@ -18,6 +18,7 @@ import (
 func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "copy",
+		Aliases:   []string{"cp"},
 		Usage:     "Copy files/folders between local and remote machine",
 		Args:      true,
 		ArgsUsage: "MACHINE:SRC_PATH DEST_PATH | SRC_PATH MACHINE:DEST_PATH",
@@ -80,7 +81,7 @@ func copyToRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to str
 		return err
 	}
 
-	// Create a temporary file to store the tar archive
+	// Create a temporary file to store the tar achive
 	tmpFile, err := os.CreateTemp("", "archive-*.tar")
 	if err != nil {
 		return err
