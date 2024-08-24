@@ -74,8 +74,6 @@ func runCopy(vikingCli *command.Cli, from, to string) error {
 }
 
 func copyToRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to string) error {
-	fmt.Fprintln(vikingCli.Out, "Archiving files...")
-
 	data, err := archive.Tar(from)
 	if err != nil {
 		return err
@@ -112,8 +110,6 @@ func copyToRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to str
 				out = out.WithPrefix(prefix)
 				errOut = errOut.WithPrefix(prefix + "error: ")
 			}
-
-			fmt.Fprintf(out, "Copying to %s...\n", exec.Addr()+":"+to)
 
 			// Open the temporary file for reading
 			tmpFile, err := os.Open(tmpFile.Name())
@@ -157,7 +153,6 @@ func copyFromRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to s
 				errOut = errOut.WithPrefix(prefix + "error: ")
 			}
 
-			fmt.Fprintf(out, "Copying from %s...\n", from)
 			data, err := archive.TarRemote(exec, from)
 			if err != nil {
 				fmt.Fprintln(errOut, err)
