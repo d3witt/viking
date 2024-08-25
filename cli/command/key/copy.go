@@ -11,7 +11,7 @@ import (
 func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "copy",
-		Usage:     "Copy public key (or private with --private) to clipboard.",
+		Usage:     "Copy public key to clipboard.",
 		Args:      true,
 		ArgsUsage: "NAME",
 		Action: func(ctx *cli.Context) error {
