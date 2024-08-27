@@ -81,7 +81,7 @@ $ viking exec --tty deathstar /bin/bash
 root@deathstar:~$
 ```
 
-#### 📡 Copy files/directories (in parallel to/from all machines):
+#### 🗂️ Copy files/directories (in parallel to/from all machines):
 
 ```
 $ viking cp /tmp/file.txt deathstar:/tmp/
