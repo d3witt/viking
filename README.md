@@ -17,11 +17,12 @@ VERSION:
    v1.0
 
 COMMANDS:
-   exec     Execute shell command on machine
-   key      Manage SSH keys
-   machine  Manage your machines
-   config   Get config directory path
-   help, h  Shows a list of commands or help for one command
+    exec      Execute shell command on machine
+    copy, cp  Copy files/folders between local and remote machine
+    key       Manage SSH keys
+    machine   Manage your machines
+    config    Get config directory path
+    help, h   Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
    --help, -h     show help
@@ -57,18 +58,20 @@ go install -ldflags="-s -w" github.com/d3witt/viking@latest
 #### 🛰️ Add machine:
 
 ```
-$ viking machine add --name deathstar --key starkey 168.112.216.50
+$ viking machine add --name deathstar --key starkey 168.112.216.50 root@61.22.128.69:3000 73.30.62.32:3001
 Machine deathstar added.
 ```
 
 > [!NOTE]
 > The key flag is not required. If a key is not specified, SSH Agent will be used to connect to the server.
 
-#### 📡 Exec command:
+#### 📡 Exec command (in parallel on all machines):
 
 ```
 $ viking exec deathstar echo 1234
-1234
+168.112.216.50: 1234
+61.22.128.69: 1234
+73.30.62.32: 1234
 ```
 
 #### 📺 Connect to the machine:
@@ -78,21 +81,12 @@ $ viking exec --tty deathstar /bin/bash
 root@deathstar:~$
 ```
 
-#### 🗂️ Machine group:
+#### 📡 Copy files/directories (in parallel to/from all machines):
 
 ```
-$ viking machine add -n dev -k starkey 168.112.216.50 117.51.181.37 24.89.193.43 77.79.125.157
-Machine dev added.
-
-$ viking exec dev echo 1234
-168.112.216.50: 1234
-117.51.181.37: 1234
-24.89.193.43: 1234
-77.79.125.157: 1234
+$ viking cp /tmp/file.txt deathstar:/tmp/
+Success: 3, Errors: 0
 ```
-
-> [!NOTE]
-> All machines in the group will run the same command at the same time. If there are errors, they will show up in the output. The execution will keep going despite the errors.
 
 #### 🔑 Add SSH key from a file
 
