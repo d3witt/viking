@@ -1,4 +1,8 @@
 # Viking ⛵️
+[![Go Report Card](https://goreportcard.com/badge/github.com/d3witt/viking)](https://goreportcard.com/report/github.com/d3witt/viking)
+[![Go Reference](https://pkg.go.dev/badge/github.com/d3witt/viking.svg)](https://pkg.go.dev/github.com/d3witt/viking)
+![GitHub release](https://img.shields.io/github/v/release/d3witt/viking)
+
 
 ### Simple way to manage your remote machines
 
