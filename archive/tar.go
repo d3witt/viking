@@ -152,7 +152,7 @@ func TarRemote(exec sshexec.Executor, source string) (io.Reader, error) {
 
 	go func() {
 		defer inPipe.Close()
-		cmd := sshexec.Command(exec, "tar", "-cf", "-", "-C", source, ".")
+		cmd := sshexec.Command(exec, "tar", "-cf", "-", source, ".")
 		cmd.Stdout = inPipe
 		if err := cmd.Run(); err != nil {
 			inPipe.CloseWithError(err)
