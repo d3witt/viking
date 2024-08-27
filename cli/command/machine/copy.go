@@ -8,10 +8,12 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/d3witt/viking/archive"
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/sshexec"
+	"github.com/schollz/progressbar/v3"
 	"github.com/urfave/cli/v2"
 )
 
@@ -79,7 +81,7 @@ func copyToRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to str
 		return err
 	}
 
-	// Create a temporary file to store the tar achive
+	// Create a temporary file to store the tar archive
 	tmpFile, err := os.CreateTemp("", "archive-*.tar")
 	if err != nil {
 		return err
@@ -87,7 +89,8 @@ func copyToRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to str
 	defer os.Remove(tmpFile.Name())
 
 	// Write the tar archive to the temporary file
-	if _, err := io.Copy(tmpFile, data); err != nil {
+	written, err := io.Copy(tmpFile, data)
+	if err != nil {
 		return err
 	}
 
@@ -97,81 +100,133 @@ func copyToRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to str
 	}
 
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var errorMessages []string
+
 	wg.Add(len(execs))
+
+	bar := copyProgressBar(
+		vikingCli.Out,
+		written*int64(len(execs)),
+		"Sending",
+	)
 
 	for _, exec := range execs {
 		go func(exec sshexec.Executor) {
 			defer wg.Done()
 
-			out := vikingCli.Out
-			errOut := vikingCli.Err
-			if len(execs) > 1 {
-				prefix := fmt.Sprintf("%s: ", exec.Addr())
-				out = out.WithPrefix(prefix)
-				errOut = errOut.WithPrefix(prefix + "error: ")
-			}
-
 			// Open the temporary file for reading
 			tmpFile, err := os.Open(tmpFile.Name())
 			if err != nil {
-				fmt.Fprintln(errOut, err)
+				mu.Lock()
+				errorMessages = append(errorMessages, fmt.Sprintf("Error opening temporary file: %v", err))
+				mu.Unlock()
 				return
 			}
 			defer tmpFile.Close()
 
-			if err := archive.UntarRemote(exec, to, tmpFile); err != nil {
-				fmt.Fprintln(errOut, err)
+			// Create a multi-reader to read from the file and update the progress bar
+			reader := io.TeeReader(tmpFile, bar)
+
+			if err := archive.UntarRemote(exec, to, reader); err != nil {
+				mu.Lock()
+				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", exec.Addr(), err))
+				mu.Unlock()
 				return
 			}
-
-			fmt.Fprintf(out, "Successfully copied to %s\n", exec.Addr()+":"+to)
 		}(exec)
 	}
 
 	wg.Wait()
+
+	printCopyStatus(vikingCli.Out, len(execs), errorMessages)
 
 	return nil
 }
 
 func copyFromRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to string) error {
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var errorMessages []string
+
 	wg.Add(len(execs))
+
+	bar := copyProgressBar(
+		vikingCli.Out,
+		-1,
+		"Receiving",
+	)
 
 	for _, exec := range execs {
 		go func(exec sshexec.Executor) {
 			defer wg.Done()
 
 			dest := to
-
-			out := vikingCli.Out
-			errOut := vikingCli.Err
 			if len(execs) > 1 {
 				dest = path.Join(to, exec.Addr())
-
-				prefix := fmt.Sprintf("%s: ", exec.Addr())
-				out = out.WithPrefix(prefix)
-				errOut = errOut.WithPrefix(prefix + "error: ")
 			}
 
 			data, err := archive.TarRemote(exec, from)
 			if err != nil {
-				fmt.Fprintln(errOut, err)
+				mu.Lock()
+				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", exec.Addr(), err))
+				mu.Unlock()
 				return
 			}
+
+			reader := io.TeeReader(data, bar)
 
 			buf := new(bytes.Buffer)
-			buf.ReadFrom(data)
-
-			if err := archive.Untar(buf, dest); err != nil {
-				fmt.Fprintln(errOut, err)
-
+			_, err = buf.ReadFrom(reader)
+			if err != nil {
+				mu.Lock()
+				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", exec.Addr(), err))
+				mu.Unlock()
 				return
 			}
 
-			fmt.Fprintf(out, "Successfully copied to %s\n", dest)
+			if err := archive.Untar(buf, dest); err != nil {
+				mu.Lock()
+				errorMessages = append(errorMessages, fmt.Sprintf("Error untar to %s: %v", dest, err))
+				mu.Unlock()
+				return
+			}
 		}(exec)
 	}
 
 	wg.Wait()
+	bar.Finish()
+
+	printCopyStatus(vikingCli.Out, len(execs), errorMessages)
+
 	return nil
+}
+
+func printCopyStatus(out io.Writer, total int, errorMessages []string) {
+	errCount := len(errorMessages)
+
+	fmt.Fprintf(out, "Success: %d, Errors: %d\n", total-errCount, errCount)
+
+	if len(errorMessages) > 0 {
+		fmt.Fprintln(out, "Error details:")
+		for _, message := range errorMessages {
+			fmt.Fprintln(out, message)
+		}
+	}
+}
+
+func copyProgressBar(out io.Writer, maxBytes int64, message string) *progressbar.ProgressBar {
+	return progressbar.NewOptions64(
+		maxBytes,
+		progressbar.OptionSetDescription(message),
+		progressbar.OptionSetWriter(out),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionSetWidth(10),
+		progressbar.OptionThrottle(65*time.Millisecond),
+		progressbar.OptionShowCount(),
+		progressbar.OptionClearOnFinish(),
+		progressbar.OptionSpinnerType(14),
+		progressbar.OptionFullWidth(),
+		progressbar.OptionSetRenderBlankState(true),
+	)
 }
