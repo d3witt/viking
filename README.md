@@ -1,4 +1,4 @@
-# Viking 🗺️
+# Viking ⛵️
 
 ### Simple way to manage your remote machines
 
