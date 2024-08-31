@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/d3witt/viking/sshexec"
+	"golang.org/x/crypto/ssh"
 )
 
 func Tar(source string) (io.Reader, error) {
@@ -147,12 +148,12 @@ func Untar(r io.Reader, dest string) error {
 }
 
 // TarRemote creates a tar archive for the given file/directory on the remote server.
-func TarRemote(exec sshexec.Executor, source string) (io.Reader, error) {
+func TarRemote(c *ssh.Client, source string) (io.Reader, error) {
 	outPipe, inPipe := io.Pipe()
 
 	go func() {
 		defer inPipe.Close()
-		cmd := sshexec.Command(exec, "tar", "-cf", "-", source, ".")
+		cmd := sshexec.Command(c, "tar", "-cf", "-", source, ".")
 		cmd.Stdout = inPipe
 		if err := cmd.Run(); err != nil {
 			inPipe.CloseWithError(err)
@@ -162,17 +163,17 @@ func TarRemote(exec sshexec.Executor, source string) (io.Reader, error) {
 	return outPipe, nil
 }
 
-func UntarRemote(exec sshexec.Executor, dest string, in io.Reader) error {
+func UntarRemote(c *ssh.Client, dest string, in io.Reader) error {
 	folderPath := filepath.Dir(dest)
 
 	// Ensure the destination directory exists
-	cmd := sshexec.Command(exec, "mkdir", "-p", folderPath)
+	cmd := sshexec.Command(c, "mkdir", "-p", folderPath)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	// Untar the contents to the destination directory, replacing existing files
-	cmd = sshexec.Command(exec, "tar", "--overwrite", "-xf", "-", "-C", folderPath)
+	cmd = sshexec.Command(c, "tar", "--overwrite", "-xf", "-", "-C", folderPath)
 	cmd.Stdin = in
 
 	return cmd.Run()

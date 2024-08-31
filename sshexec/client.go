@@ -11,7 +11,7 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
-func SshClient(host string, port int, user, private, passphrase string) (*ssh.Client, error) {
+func SSHClient(host string, port int, user, private, passphrase string) (*ssh.Client, error) {
 	var sshAuth ssh.AuthMethod
 	var err error
 

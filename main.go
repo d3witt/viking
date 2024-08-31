@@ -10,6 +10,7 @@ import (
 	"github.com/d3witt/viking/cli/command/cfg"
 	"github.com/d3witt/viking/cli/command/key"
 	"github.com/d3witt/viking/cli/command/machine"
+	"github.com/d3witt/viking/cli/command/service"
 	"github.com/d3witt/viking/config"
 	"github.com/d3witt/viking/streams"
 	"github.com/urfave/cli/v2"
@@ -44,6 +45,7 @@ func main() {
 			// Often used commands
 			machine.NewExecuteCmd(vikingCli),
 			machine.NewCopyCmd(vikingCli),
+			service.NewRunCmd(vikingCli),
 
 			// Other commands
 			key.NewCmd(vikingCli),

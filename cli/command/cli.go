@@ -6,6 +6,7 @@ import (
 	"github.com/d3witt/viking/config"
 	"github.com/d3witt/viking/sshexec"
 	"github.com/d3witt/viking/streams"
+	"golang.org/x/crypto/ssh"
 )
 
 type Cli struct {
@@ -15,15 +16,15 @@ type Cli struct {
 	CmdLogger *slog.Logger
 }
 
-func (c *Cli) MachineExecuters(machine string) ([]sshexec.Executor, error) {
+func (c *Cli) DialMachine(machine string) ([]*ssh.Client, error) {
 	m, err := c.Config.GetMachineByName(machine)
 	if err != nil {
 		return nil, err
 	}
 
-	execs := make([]sshexec.Executor, len(m.Hosts))
+	execs := make([]*ssh.Client, len(m.Hosts))
 	for i, host := range m.Hosts {
-		exec, err := c.HostExecutor(host)
+		exec, err := c.DialHost(host)
 		if err != nil {
 			return nil, err
 		}
@@ -34,7 +35,7 @@ func (c *Cli) MachineExecuters(machine string) ([]sshexec.Executor, error) {
 	return execs, nil
 }
 
-func (c *Cli) HostExecutor(host config.Host) (sshexec.Executor, error) {
+func (c *Cli) DialHost(host config.Host) (*ssh.Client, error) {
 	var private, passphrase string
 	if host.Key != "" {
 		key, err := c.Config.GetKeyByName(host.Key)
@@ -46,5 +47,5 @@ func (c *Cli) HostExecutor(host config.Host) (sshexec.Executor, error) {
 		passphrase = key.Passphrase
 	}
 
-	return sshexec.NewExecutor(host.IP.String(), host.Port, host.User, private, passphrase), nil
+	return sshexec.SSHClient(host.IP.String(), host.Port, host.User, private, passphrase)
 }

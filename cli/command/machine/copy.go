@@ -12,9 +12,9 @@ import (
 
 	"github.com/d3witt/viking/archive"
 	"github.com/d3witt/viking/cli/command"
-	"github.com/d3witt/viking/sshexec"
 	"github.com/schollz/progressbar/v3"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/crypto/ssh"
 )
 
 func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
@@ -57,10 +57,10 @@ func runCopy(vikingCli *command.Cli, from, to string) error {
 
 	machine := fromMachine + toMachine
 
-	execs, err := vikingCli.MachineExecuters(machine)
+	clients, err := vikingCli.DialMachine(machine)
 	defer func() {
-		for _, exec := range execs {
-			exec.Close()
+		for _, client := range clients {
+			client.Close()
 		}
 	}()
 
@@ -69,13 +69,13 @@ func runCopy(vikingCli *command.Cli, from, to string) error {
 	}
 
 	if fromMachine != "" {
-		return copyFromRemote(vikingCli, execs, fromPath, toPath)
+		return copyFromRemote(vikingCli, clients, fromPath, toPath)
 	}
 
-	return copyToRemote(vikingCli, execs, fromPath, toPath)
+	return copyToRemote(vikingCli, clients, fromPath, toPath)
 }
 
-func copyToRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to string) error {
+func copyToRemote(vikingCli *command.Cli, clients []*ssh.Client, from, to string) error {
 	data, err := archive.Tar(from)
 	if err != nil {
 		return err
@@ -103,16 +103,16 @@ func copyToRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to str
 	var mu sync.Mutex
 	var errorMessages []string
 
-	wg.Add(len(execs))
+	wg.Add(len(clients))
 
 	bar := copyProgressBar(
 		vikingCli.Out,
-		written*int64(len(execs)),
+		written*int64(len(clients)),
 		"Sending",
 	)
 
-	for _, exec := range execs {
-		go func(exec sshexec.Executor) {
+	for _, client := range clients {
+		go func(client *ssh.Client) {
 			defer wg.Done()
 
 			// Open the temporary file for reading
@@ -128,28 +128,28 @@ func copyToRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to str
 			// Create a multi-reader to read from the file and update the progress bar
 			reader := io.TeeReader(tmpFile, bar)
 
-			if err := archive.UntarRemote(exec, to, reader); err != nil {
+			if err := archive.UntarRemote(client, to, reader); err != nil {
 				mu.Lock()
-				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", exec.Addr(), err))
+				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
 				mu.Unlock()
 				return
 			}
-		}(exec)
+		}(client)
 	}
 
 	wg.Wait()
 
-	printCopyStatus(vikingCli.Out, len(execs), errorMessages)
+	printCopyStatus(vikingCli.Out, len(clients), errorMessages)
 
 	return nil
 }
 
-func copyFromRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to string) error {
+func copyFromRemote(vikingCli *command.Cli, clients []*ssh.Client, from, to string) error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errorMessages []string
 
-	wg.Add(len(execs))
+	wg.Add(len(clients))
 
 	bar := copyProgressBar(
 		vikingCli.Out,
@@ -157,19 +157,19 @@ func copyFromRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to s
 		"Receiving",
 	)
 
-	for _, exec := range execs {
-		go func(exec sshexec.Executor) {
+	for _, client := range clients {
+		go func(client *ssh.Client) {
 			defer wg.Done()
 
 			dest := to
-			if len(execs) > 1 {
-				dest = path.Join(to, exec.Addr())
+			if len(clients) > 1 {
+				dest = path.Join(to, client.RemoteAddr().String())
 			}
 
-			data, err := archive.TarRemote(exec, from)
+			data, err := archive.TarRemote(client, from)
 			if err != nil {
 				mu.Lock()
-				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", exec.Addr(), err))
+				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
 				mu.Unlock()
 				return
 			}
@@ -180,7 +180,7 @@ func copyFromRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to s
 			_, err = buf.ReadFrom(reader)
 			if err != nil {
 				mu.Lock()
-				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", exec.Addr(), err))
+				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
 				mu.Unlock()
 				return
 			}
@@ -191,13 +191,13 @@ func copyFromRemote(vikingCli *command.Cli, execs []sshexec.Executor, from, to s
 				mu.Unlock()
 				return
 			}
-		}(exec)
+		}(client)
 	}
 
 	wg.Wait()
 	bar.Finish()
 
-	printCopyStatus(vikingCli.Out, len(execs), errorMessages)
+	printCopyStatus(vikingCli.Out, len(clients), errorMessages)
 
 	return nil
 }
