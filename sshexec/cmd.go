@@ -40,6 +40,9 @@ type Cmd struct {
 	Stdout, Stderr io.Writer
 
 	pty *PtyOptions
+	// pipes holds all the pipes associated with Stdin, Stdout, and Stderr.
+	// These must be closed when the command completes.
+	pipes []io.Closer
 }
 
 func Command(client *ssh.Client, name string, args ...string) *Cmd {
@@ -66,6 +69,11 @@ func (c *Cmd) Start() error {
 	defer func() {
 		if err != nil {
 			_ = session.Close()
+
+			for _, p := range c.pipes {
+				_ = p.Close()
+			}
+			c.pipes = nil
 		}
 	}()
 
@@ -104,6 +112,11 @@ func (c *Cmd) Wait() error {
 	defer func() {
 		c.session.Close()
 		c.session = nil
+
+		for _, p := range c.pipes {
+			_ = p.Close()
+		}
+		c.pipes = nil
 	}()
 
 	if err := c.session.Wait(); err != nil {
@@ -120,14 +133,21 @@ func (c *Cmd) Wait() error {
 	return nil
 }
 
-func (c *Cmd) Close() error {
+func (c *Cmd) Exit() error {
 	if c.session == nil {
-		return nil
+		return errors.New("failed to exit command: command not started")
 	}
 
-	err := c.session.Close()
-	c.session = nil
-	return err
+	if err := c.session.Close(); err != nil {
+		return fmt.Errorf("failed to exit command: %w", err)
+	}
+
+	for _, p := range c.pipes {
+		_ = p.Close()
+	}
+	c.pipes = nil
+
+	return nil
 }
 
 func (c *Cmd) Run() error {
@@ -184,6 +204,54 @@ func (c *Cmd) CombinedOutput() (string, error) {
 	err := c.Run()
 
 	return b.b.String(), err
+}
+
+func (c *Cmd) StdinPipe() (io.WriteCloser, error) {
+	if c.session != nil {
+		return nil, errors.New("session already started")
+	}
+
+	if c.Stdin != nil {
+		return nil, errors.New("stdin already set")
+	}
+
+	pr, pw := io.Pipe()
+	c.Stdin = pr
+
+	c.pipes = append(c.pipes, pr, pw)
+	return pw, nil
+}
+
+func (c *Cmd) StdoutPipe() (io.Reader, error) {
+	if c.session != nil {
+		return nil, errors.New("session already started")
+	}
+
+	if c.Stdout != nil {
+		return nil, errors.New("stdout already set")
+	}
+
+	pr, pw := io.Pipe()
+	c.Stdout = pw
+
+	c.pipes = append(c.pipes, pr, pw)
+	return pr, nil
+}
+
+func (c *Cmd) StderrPipe() (io.Reader, error) {
+	if c.session != nil {
+		return nil, errors.New("session already started")
+	}
+
+	if c.Stderr != nil {
+		return nil, errors.New("stderr already set")
+	}
+
+	pr, pw := io.Pipe()
+	c.Stderr = pw
+
+	c.pipes = append(c.pipes, pr, pw)
+	return pr, nil
 }
 
 func (c *Cmd) argv() string {

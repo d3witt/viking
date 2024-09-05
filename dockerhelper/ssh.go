@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/d3witt/viking/sshexec"
@@ -20,15 +22,17 @@ type cmdConn struct {
 }
 
 func (c *cmdConn) Read(p []byte) (n int, err error) {
+	fmt.Printf("Read: %s\n", p)
 	return c.in.Read(p)
 }
 
 func (c *cmdConn) Write(p []byte) (n int, err error) {
+	fmt.Printf("Write: %s\n", p)
 	return c.out.Write(p)
 }
 
 func (c *cmdConn) Close() error {
-	return c.cmd.Close()
+	return c.cmd.Exit()
 }
 
 func (c *cmdConn) LocalAddr() net.Addr {
@@ -63,43 +67,59 @@ type Client struct {
 }
 
 func DialSSH(c *ssh.Client) (*Client, error) {
+	dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		cmd := sshexec.Command(c, "docker", "system", "dial-stdio")
+		inWriter, err := cmd.StdinPipe()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get stdin pipe: %w", err)
+		}
+		outReader, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get stdout pipe: %w", err)
+		}
+
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("failed to start command: %w", err)
+		}
+
+		return &cmdConn{
+			cmd: cmd,
+			in:  outReader,
+			out: inWriter,
+		}, nil
+	}
+
+	httpClient := &http.Client{
+		// No tls
+		// No proxy
+		Transport: &http.Transport{
+			DialContext: dialContext,
+		},
+	}
+
 	var clientOpts []client.Opt
 
-	inReader, inWriter := io.Pipe()   // TODO: Close when cmdConn is closed
-	outReader, outWriter := io.Pipe() // TODO: Close when cmdConn is closed
-
-	cmd := sshexec.Command(c, "docker system dial-stdio")
-	cmd.Stdin = inReader
-	cmd.Stdout = outWriter
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start command: %w", err)
-	}
-
 	clientOpts = append(clientOpts,
-		client.WithAPIVersionNegotiation(),
-		client.WithDialContext(func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return &cmdConn{
-				cmd: cmd,
-				in:  outReader,
-				out: inWriter,
-			}, nil
-		}),
-		client.WithTimeout(10*time.Second),
+		client.WithHTTPClient(httpClient),
+		client.WithHost("http://docker.example.com"),
+		client.WithDialContext(dialContext),
 	)
 
-	dockerClient, err := client.NewClientWithOpts(clientOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+	version := os.Getenv("DOCKER_API_VERSION")
+
+	if version != "" {
+		clientOpts = append(clientOpts, client.WithVersion(version))
+	} else {
+		clientOpts = append(clientOpts, client.WithAPIVersionNegotiation())
 	}
 
-	_, err = dockerClient.Ping(context.Background())
+	cl, err := client.NewClientWithOpts(clientOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to ping Docker daemon: %w", err)
+		return nil, nil
 	}
 
 	return &Client{
-		Client: dockerClient,
+		Client: cl,
 		SSH:    c,
 	}, nil
 }

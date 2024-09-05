@@ -2,13 +2,20 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"slices"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/dockerhelper"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
@@ -19,16 +26,160 @@ import (
 func NewRunCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:  "deploy",
-		Usage: "Deploy container",
-		Args:  true,
+		Usage: "Deploy a service to a machine",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "name",
+				Aliases: []string{"n"},
+				Usage:   "Name of the service",
+			},
+			&cli.Uint64Flag{
+				Name:    "replicas",
+				Aliases: []string{"r"},
+				Usage:   "Number of replicas",
+				Value:   1,
+			},
+			&cli.StringFlag{
+				Name:    "port",
+				Aliases: []string{"p"},
+				Usage:   "Publish a container's port to the host. Format: hostPort:containerPort",
+			},
+			&cli.StringSliceFlag{
+				Name:    "env",
+				Aliases: []string{"e"},
+				Usage:   "Environment variables",
+			},
+			&cli.StringSliceFlag{
+				Name:    "bind",
+				Aliases: []string{"b"},
+				Usage:   "Bind folder on host to container",
+			},
+			&cli.StringSliceFlag{
+				Name:    "network",
+				Aliases: []string{"net"},
+				Usage:   "Connect the service to a network",
+				Value:   cli.NewStringSlice(vikingNetworkName),
+			},
+			&cli.StringFlag{
+				Name:  "health-cmd",
+				Usage: "Command to run to check health",
+			},
+			&cli.StringFlag{
+				Name:  "health-interval",
+				Usage: "Time between running the check",
+				Value: "5s",
+			},
+			&cli.StringFlag{
+				Name:  "health-timeout",
+				Usage: "Maximum time to allow one check to run",
+				Value: "3s",
+			},
+			&cli.IntFlag{
+				Name:  "health-retries",
+				Usage: "Consecutive failures needed to report unhealthy",
+				Value: 3,
+			},
+			&cli.StringFlag{
+				Name:  "rollback-delay",
+				Usage: "Delay between task rollbacks",
+				Value: "0s",
+			},
+			&cli.StringFlag{
+				Name:  "stop-grace-period",
+				Usage: "Time to wait before force killing a container",
+				Value: "10s",
+			},
+			&cli.StringFlag{
+				Name:  "stop-signal",
+				Usage: "Signal to stop the container",
+				Value: "SIGTERM",
+			},
+			&cli.StringSliceFlag{
+				Name:    "label",
+				Aliases: []string{"l"},
+				Usage:   "Service labels",
+			},
+		},
+		Args: true,
 		Action: func(c *cli.Context) error {
 			machine := c.Args().First()
-			return runDeploy(c.Context, vikingCli, machine)
+
+			healthInterval, err := parseTime(c.String("health-interval"))
+			if err != nil {
+				return fmt.Errorf("invalid health-interval: %w", err)
+			}
+			healthTimeout, err := parseTime(c.String("health-timeout"))
+			if err != nil {
+				return fmt.Errorf("invalid health-timeout: %w", err)
+			}
+			rollbackDelay, err := parseTime(c.String("rollback-delay"))
+			if err != nil {
+				return fmt.Errorf("invalid rollback-delay: %w", err)
+			}
+			stopGracePeriod, err := parseTime(c.String("stop-grace-period"))
+			if err != nil {
+				return fmt.Errorf("invalid stop-grace-period: %w", err)
+			}
+
+			labels, err := parseLabels(c.StringSlice("label"))
+			if err != nil {
+				return fmt.Errorf("invalid label: %w", err)
+			}
+
+			image := c.Args().Get(1)
+			cmd := c.Args().Slice()[2:]
+
+			options := serviceOptions{
+				Image:    image,
+				Cmd:      cmd,
+				Labels:   labels,
+				Name:     c.String("name"),
+				Replicas: c.Uint64("replicas"),
+				Port:     c.String("port"),
+				Env:      c.StringSlice("env"),
+				Bind:     c.StringSlice("bind"),
+				Network:  c.StringSlice("network"),
+				Health: healthOptions{
+					Cmd:      c.String("health-cmd"),
+					Interval: healthInterval,
+					Timeout:  healthTimeout,
+					Retries:  c.Int("health-retries"),
+				},
+				Rollback: rollbackOptions{
+					Delay: rollbackDelay,
+				},
+				StopGracePeriod: stopGracePeriod,
+				StopSignal:      c.String("stop-signal"),
+			}
+
+			return runDeploy(c.Context, vikingCli, machine, options)
 		},
 	}
 }
 
-func runDeploy(ctx context.Context, vikingCli *command.Cli, machine string) error {
+func parseLabels(val []string) (map[string]string, error) {
+	labels := make(map[string]string)
+	for _, label := range val {
+		parts := strings.SplitN(label, "=", 2)
+		if len(parts) != 2 {
+			return labels, errors.New("invalid label format")
+		}
+
+		labels[parts[0]] = parts[1]
+	}
+
+	return labels, nil
+}
+
+func parseTime(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+
+	return time.ParseDuration(s)
+}
+
+func runDeploy(ctx context.Context, vikingCli *command.Cli, machine string, options serviceOptions) error {
 	clients, err := vikingCli.DialMachine(machine)
 	if err != nil {
 		return err
@@ -43,11 +194,14 @@ func runDeploy(ctx context.Context, vikingCli *command.Cli, machine string) erro
 		return err
 	}
 
-	if err := ensureSwarm(ctx, vikingCli, clients); err != nil {
+	fmt.Fprintf(vikingCli.Out, "Deploying service to %s...\n", machine)
+	manager, err := ensureSwarm(ctx, vikingCli, clients)
+	if err != nil {
 		return err
 	}
 
-	return nil
+	fmt.Fprintf(vikingCli.Out, "Creating service %s...\n", options.Name)
+	return runService(ctx, vikingCli, manager, options)
 }
 
 const (
@@ -68,12 +222,12 @@ func ensureDockerInstalled(vikingCli *command.Cli, clients []*ssh.Client) error 
 	return nil
 }
 
-func ensureSwarm(ctx context.Context, vikingCli *command.Cli, clients []*ssh.Client) error {
+func ensureSwarm(ctx context.Context, vikingCli *command.Cli, clients []*ssh.Client) (*dockerhelper.Client, error) {
 	dockerClients := make([]*dockerhelper.Client, len(clients))
 	for i, sshClient := range clients {
 		dockerClient, err := dockerhelper.DialSSH(sshClient)
 		if err != nil {
-			return fmt.Errorf("could not create Docker client: %w", err)
+			return nil, fmt.Errorf("could not create Docker client: %w", err)
 		}
 
 		dockerClients[i] = dockerClient
@@ -86,27 +240,37 @@ func ensureSwarm(ctx context.Context, vikingCli *command.Cli, clients []*ssh.Cli
 
 	status, nodes, err := getSwarmStatus(ctx, dockerClients)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if status == nil {
 		status, nodes, err = initSwarm(ctx, dockerClients)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	if err := joinMissingHosts(ctx, vikingCli, dockerClients, status, nodes); err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, dockerClient := range dockerClients {
 		if err := ensureVikingNetwork(ctx, dockerClient); err != nil {
-			return fmt.Errorf("could not ensure Viking network on host %s: %v", dockerClient.SSH.RemoteAddr().String(), err)
+			return nil, fmt.Errorf("could not ensure Viking network on host %s: %v", dockerClient.SSH.RemoteAddr().String(), err)
 		}
 	}
 
-	return nil
+	manager := findManager(nodes)
+	if manager == nil {
+		return nil, errors.New("could not find manager node")
+	}
+
+	managerClient := findClientByNodeAddr(dockerClients, manager.Status.Addr)
+	if managerClient == nil {
+		return nil, errors.New("could not find manager client")
+	}
+
+	return managerClient, nil
 }
 
 func getSwarmStatus(ctx context.Context, clients []*dockerhelper.Client) (*swarm.Swarm, []swarm.Node, error) {
@@ -171,11 +335,11 @@ func initSwarm(ctx context.Context, clients []*dockerhelper.Client) (*swarm.Swar
 
 		return nil, nil, fmt.Errorf("failed to initialize swarm: %v", err)
 	}
-	swarmHost, _, err := net.SplitHostPort(clients[0].SSH.RemoteAddr().String())
+	leaderHost, _, err := net.SplitHostPort(clients[0].SSH.RemoteAddr().String())
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not parse remote address: %v", err)
 	}
-	swarmAddr := net.JoinHostPort(swarmHost, "2377")
+	leaderAddr := net.JoinHostPort(leaderHost, "2377")
 
 	other := clients[1:]
 	managers := other[:managersCount-1]
@@ -186,7 +350,7 @@ func initSwarm(ctx context.Context, clients []*dockerhelper.Client) (*swarm.Swar
 			ListenAddr: "0.0.0.0:2377",
 			JoinToken:  status.JoinTokens.Manager,
 			RemoteAddrs: []string{
-				swarmAddr,
+				leaderAddr,
 			},
 		}); err != nil {
 			return nil, nil, fmt.Errorf("could not join manager %s to swarm: %v", manager.SSH.RemoteAddr().String(), err)
@@ -197,7 +361,7 @@ func initSwarm(ctx context.Context, clients []*dockerhelper.Client) (*swarm.Swar
 		if err := worker.SwarmJoin(ctx, swarm.JoinRequest{
 			JoinToken: status.JoinTokens.Worker,
 			RemoteAddrs: []string{
-				swarmAddr,
+				leaderAddr,
 			},
 		}); err != nil {
 			return nil, nil, fmt.Errorf("could not join worker %s to swarm: %v", worker.SSH.RemoteAddr().String(), err)
@@ -212,15 +376,38 @@ func initSwarm(ctx context.Context, clients []*dockerhelper.Client) (*swarm.Swar
 	return &status, nodes, nil
 }
 
-func joinMissingHosts(ctx context.Context, vikingCli *command.Cli, clients []*dockerhelper.Client, status *swarm.Swarm, nodes []swarm.Node) error {
-	leaderIdx := slices.IndexFunc(nodes, func(node swarm.Node) bool {
-		return node.ManagerStatus != nil && node.ManagerStatus.Leader
+func findManager(nodes []swarm.Node) *swarm.Node {
+	idx := slices.IndexFunc(nodes, func(node swarm.Node) bool {
+		return node.ManagerStatus != nil
 	})
-	if leaderIdx == -1 {
-		return fmt.Errorf("no leader found")
+	if idx == -1 {
+		return nil
 	}
 
-	leader := nodes[leaderIdx]
+	return &nodes[idx]
+}
+
+func findClientByNodeAddr(clients []*dockerhelper.Client, addr string) *dockerhelper.Client {
+	idx := slices.IndexFunc(clients, func(client *dockerhelper.Client) bool {
+		ip, _, err := net.SplitHostPort(client.SSH.RemoteAddr().String())
+		if err != nil {
+			return false
+		}
+
+		return ip == addr
+	})
+	if idx == -1 {
+		return nil
+	}
+
+	return clients[idx]
+}
+
+func joinMissingHosts(ctx context.Context, vikingCli *command.Cli, clients []*dockerhelper.Client, status *swarm.Swarm, nodes []swarm.Node) error {
+	manager := findManager(nodes)
+	if manager == nil {
+		return fmt.Errorf("could not find swarm manager node")
+	}
 
 	for _, client := range clients {
 		found := false
@@ -245,7 +432,7 @@ func joinMissingHosts(ctx context.Context, vikingCli *command.Cli, clients []*do
 		if err := client.SwarmJoin(ctx, swarm.JoinRequest{
 			JoinToken: status.JoinTokens.Worker,
 			RemoteAddrs: []string{
-				net.JoinHostPort(leader.ManagerStatus.Addr, "2377"),
+				net.JoinHostPort(manager.ManagerStatus.Addr, "2377"),
 			},
 		}); err != nil {
 			return fmt.Errorf("could not join worker %s to swarm: %v", client.SSH.RemoteAddr().String(), err)
@@ -271,4 +458,171 @@ func ensureVikingNetwork(ctx context.Context, client *dockerhelper.Client) error
 		Driver: "overlay",
 	})
 	return err
+}
+
+type healthOptions struct {
+	Interval time.Duration
+	Timeout  time.Duration
+	Retries  int
+	Cmd      string
+}
+
+type rollbackOptions struct {
+	Delay time.Duration
+}
+
+type serviceOptions struct {
+	Name            string
+	Image           string
+	Cmd             []string
+	Replicas        uint64
+	Labels          map[string]string
+	Env             []string
+	Bind            []string
+	Network         []string
+	Port            string
+	Health          healthOptions
+	Rollback        rollbackOptions
+	StopGracePeriod time.Duration
+	StopSignal      string
+}
+
+func runService(
+	ctx context.Context,
+	vikingCli *command.Cli,
+	client *dockerhelper.Client,
+	options serviceOptions,
+) error {
+	healthTest := []string{"NONE"}
+	if options.Health.Cmd != "" {
+		healthTest = []string{"CMD-SHELL", options.Health.Cmd}
+	}
+
+	serviceSpec := swarm.ServiceSpec{
+		Annotations: swarm.Annotations{
+			Name:   options.Name,
+			Labels: options.Labels,
+		},
+		TaskTemplate: swarm.TaskSpec{
+			ContainerSpec: &swarm.ContainerSpec{
+				Image:           options.Image,
+				StopSignal:      options.StopSignal,
+				Env:             options.Env,
+				Command:         options.Cmd,
+				StopGracePeriod: &options.StopGracePeriod,
+				Healthcheck: &container.HealthConfig{
+					Test:     healthTest,
+					Interval: options.Health.Interval,
+					Timeout:  options.Health.Timeout,
+					Retries:  options.Health.Retries,
+				},
+			},
+			Networks: buildNetworks(options.Network),
+		},
+		Mode: swarm.ServiceMode{
+			Replicated: &swarm.ReplicatedService{
+				Replicas: &options.Replicas,
+			},
+		},
+		UpdateConfig: &swarm.UpdateConfig{
+			Parallelism:     1,
+			Delay:           10 * time.Second,
+			FailureAction:   swarm.UpdateFailureActionPause,
+			Monitor:         15 * time.Second,
+			MaxFailureRatio: 0.15,
+		},
+		RollbackConfig: &swarm.UpdateConfig{
+			Parallelism:     1,
+			Delay:           options.Rollback.Delay,
+			FailureAction:   swarm.UpdateFailureActionPause,
+			Monitor:         15 * time.Second,
+			MaxFailureRatio: 0.15,
+		},
+	}
+
+	if options.Port != "" {
+		parts := strings.Split(options.Port, ":")
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid port format: %s", options.Port)
+		}
+
+		hostPort, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return fmt.Errorf("invalid port format: %s", parts[0])
+		}
+
+		containerPort, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return fmt.Errorf("invalid port format: %s", parts[1])
+		}
+
+		serviceSpec.EndpointSpec = &swarm.EndpointSpec{
+			Ports: []swarm.PortConfig{
+				{
+					Protocol:      swarm.PortConfigProtocolTCP,
+					TargetPort:    uint32(containerPort),
+					PublishedPort: uint32(hostPort),
+				},
+			},
+		}
+	}
+
+	if len(options.Bind) > 0 {
+		mounts, err := buildBindMounts(options.Bind)
+		if err != nil {
+			return err
+		}
+
+		serviceSpec.TaskTemplate.ContainerSpec.Mounts = mounts
+	}
+
+	existing, err := client.ServiceList(ctx, types.ServiceListOptions{
+		Filters: filters.NewArgs(
+			filters.Arg("name", options.Name),
+		),
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(existing) > 0 {
+		fmt.Fprintf(vikingCli.Out, "Updating service %s...\n", options.Name)
+		metadata, _, err := client.ServiceInspectWithRaw(ctx, existing[0].ID, types.ServiceInspectOptions{})
+		if err != nil {
+			return err
+		}
+
+		_, err = client.ServiceUpdate(ctx, existing[0].ID, metadata.Version, serviceSpec, types.ServiceUpdateOptions{})
+		return err
+	} else {
+		_, err := client.ServiceCreate(ctx, serviceSpec, types.ServiceCreateOptions{})
+		return err
+	}
+}
+
+func buildBindMounts(binds []string) ([]mount.Mount, error) {
+	mounts := make([]mount.Mount, len(binds))
+	for i, bind := range binds {
+		parts := strings.Split(bind, ":")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid bind mount: %s", bind)
+		}
+		src, dst := parts[0], parts[1]
+
+		mounts[i] = mount.Mount{
+			Type:   mount.TypeBind,
+			Source: src,
+			Target: dst,
+		}
+	}
+
+	return mounts, nil
+}
+
+func buildNetworks(networks []string) []swarm.NetworkAttachmentConfig {
+	networkConfigs := make([]swarm.NetworkAttachmentConfig, len(networks))
+	for i, network := range networks {
+		networkConfigs[i] = swarm.NetworkAttachmentConfig{Target: network}
+	}
+	return networkConfigs
 }
