@@ -17,7 +17,7 @@ import (
 func NewPrepareCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "prepare",
-		Usage:     "Install Docker and configure Docker Swarm cluster on all machines",
+		Usage:     "Install Docker, set up Docker Swarm, and launch Traefik",
 		Args:      true,
 		ArgsUsage: "MACHINE",
 		Action: func(ctx *cli.Context) error {
@@ -129,15 +129,18 @@ func swarmStatus(ctx context.Context, clients []*dockerhelper.Client) (
 			return nil, nil, nil, fmt.Errorf("%s: could not get Docker info: %w", cl.SSH.RemoteAddr().String(), err)
 		}
 
-		if info.Swarm.LocalNodeState == swarm.LocalNodeStateInactive {
+		switch info.Swarm.LocalNodeState {
+		case swarm.LocalNodeStateInactive:
 			missing = append(missing, cl)
 			continue
-		}
-
-		if info.Swarm.ControlAvailable {
-			managers = append(managers, cl)
-		} else {
-			workers = append(workers, cl)
+		case swarm.LocalNodeStateActive:
+			if info.Swarm.ControlAvailable {
+				managers = append(managers, cl)
+			} else {
+				workers = append(workers, cl)
+			}
+		default:
+			return nil, nil, nil, fmt.Errorf("%s: unexpected local node state: %s", cl.SSH.RemoteAddr().String(), info.Swarm.LocalNodeState)
 		}
 	}
 
