@@ -1,12 +1,16 @@
 package command
 
 import (
+	"bufio"
+	"fmt"
+	"io"
 	"log/slog"
+	"math/rand"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/d3witt/viking/config"
-	"github.com/d3witt/viking/sshexec"
 	"github.com/d3witt/viking/streams"
-	"golang.org/x/crypto/ssh"
 )
 
 type Cli struct {
@@ -16,36 +20,62 @@ type Cli struct {
 	CmdLogger *slog.Logger
 }
 
-func (c *Cli) DialMachine(machine string) ([]*ssh.Client, error) {
-	m, err := c.Config.GetMachineByName(machine)
-	if err != nil {
-		return nil, err
-	}
+func GenerateRandomName() string {
+	letters := "abcdefghijklmnopqrstuvwxyz"
+	digits := "123456789"
 
-	execs := make([]*ssh.Client, len(m.Hosts))
-	for i, host := range m.Hosts {
-		exec, err := c.DialHost(host)
-		if err != nil {
-			return nil, err
-		}
+	name := fmt.Sprintf("%c%c%c%c",
+		letters[rand.Intn(len(letters))], // Random letter
+		digits[rand.Intn(len(digits))],   // Random digit
+		letters[rand.Intn(len(letters))], // Random letter
+		digits[rand.Intn(len(digits))])   // Random digit
 
-		execs[i] = exec
-	}
+	hyphenPosition := rand.Intn(len(name)-1) + 1
+	nameWithHyphen := name[:hyphenPosition] + "-" + name[hyphenPosition:]
 
-	return execs, nil
+	return nameWithHyphen
 }
 
-func (c *Cli) DialHost(host config.Host) (*ssh.Client, error) {
-	var private, passphrase string
-	if host.Key != "" {
-		key, err := c.Config.GetKeyByName(host.Key)
-		if err != nil {
-			return nil, err
-		}
+func PrintTable(output io.Writer, data [][]string) error {
+	w := tabwriter.NewWriter(output, 0, 0, 3, ' ', tabwriter.TabIndent)
 
-		private = key.Private
-		passphrase = key.Passphrase
+	for _, line := range data {
+		// Formatting and printing each line to fit the tabulated format
+		fmt.Fprintln(w, strings.Join(line, "\t"))
 	}
 
-	return sshexec.SSHClient(host.IP.String(), host.Port, host.User, private, passphrase)
+	return w.Flush()
+}
+
+func Prompt(in io.Reader, out io.Writer, prompt, configDefault string) (string, error) {
+	if configDefault == "" {
+		fmt.Fprintf(out, "%s: ", prompt)
+	} else {
+		fmt.Fprintf(out, "%s (%s): ", prompt, configDefault)
+	}
+
+	line, _, err := bufio.NewReader(in).ReadLine()
+	if err != nil {
+		return "", fmt.Errorf("Error while reading input: %w", err)
+	}
+
+	return strings.TrimSpace(string(line)), nil
+}
+
+// PromptForConfirmation requests and checks confirmation from the user.
+// This will display the provided message followed by ' [y/N] '. If the user
+// input 'y' or 'Y' it returns true otherwise false. If no message is provided,
+// "Are you sure you want to proceed? [y/N] " will be used instead.
+func PromptForConfirmation(in io.Reader, out io.Writer, message string) (bool, error) {
+	if message == "" {
+		message = "Are you sure you want to proceed?"
+	}
+	message += " [y/N] "
+
+	answer, err := Prompt(in, out, message, "")
+	if err != nil {
+		return false, err
+	}
+
+	return strings.EqualFold(answer, "y"), nil
 }

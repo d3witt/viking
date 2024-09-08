@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,11 +14,8 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/swarm"
-	"github.com/docker/docker/client"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/crypto/ssh"
 )
 
 func NewRunCmd(vikingCli *command.Cli) *cli.Command {
@@ -58,7 +53,7 @@ func NewRunCmd(vikingCli *command.Cli) *cli.Command {
 				Name:    "network",
 				Aliases: []string{"net"},
 				Usage:   "Connect the service to a network",
-				Value:   cli.NewStringSlice(vikingNetworkName),
+				Value:   cli.NewStringSlice(dockerhelper.VikingNetworkName),
 			},
 			&cli.StringFlag{
 				Name:  "health-cmd",
@@ -180,284 +175,16 @@ func parseTime(s string) (time.Duration, error) {
 }
 
 func runDeploy(ctx context.Context, vikingCli *command.Cli, machine string, options serviceOptions) error {
-	clients, err := vikingCli.DialMachine(machine)
+	cl, err := vikingCli.DialManagerNode(ctx, machine)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		for _, client := range clients {
-			client.Close()
-		}
+		cl.Close()
+		cl.SSH.Close()
 	}()
 
-	if err := ensureDockerInstalled(vikingCli, clients); err != nil {
-		return err
-	}
-
-	fmt.Fprintf(vikingCli.Out, "Deploying service to %s...\n", machine)
-	manager, err := ensureSwarm(ctx, vikingCli, clients)
-	if err != nil {
-		return err
-	}
-
-	fmt.Fprintf(vikingCli.Out, "Creating service %s...\n", options.Name)
-	return runService(ctx, vikingCli, manager, options)
-}
-
-const (
-	swarmLabel        = "viking-swarm"
-	vikingNetworkName = "viking-network"
-)
-
-func ensureDockerInstalled(vikingCli *command.Cli, clients []*ssh.Client) error {
-	for _, client := range clients {
-		if !dockerhelper.IsDockerInstalled(client) {
-			fmt.Fprintf(vikingCli.Out, "Installing Docker on %s...\n", client.RemoteAddr().String())
-			if err := dockerhelper.InstallDocker(client); err != nil {
-				return fmt.Errorf("could not install Docker on host %s: %w", client.RemoteAddr().String(), err)
-			}
-		}
-	}
-
-	return nil
-}
-
-func ensureSwarm(ctx context.Context, vikingCli *command.Cli, clients []*ssh.Client) (*dockerhelper.Client, error) {
-	dockerClients := make([]*dockerhelper.Client, len(clients))
-	for i, sshClient := range clients {
-		dockerClient, err := dockerhelper.DialSSH(sshClient)
-		if err != nil {
-			return nil, fmt.Errorf("could not create Docker client: %w", err)
-		}
-
-		dockerClients[i] = dockerClient
-	}
-	defer func() {
-		for _, client := range dockerClients {
-			client.Close()
-		}
-	}()
-
-	status, nodes, err := getSwarmStatus(ctx, dockerClients)
-	if err != nil {
-		return nil, err
-	}
-
-	if status == nil {
-		status, nodes, err = initSwarm(ctx, dockerClients)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if err := joinMissingHosts(ctx, vikingCli, dockerClients, status, nodes); err != nil {
-		return nil, err
-	}
-
-	for _, dockerClient := range dockerClients {
-		if err := ensureVikingNetwork(ctx, dockerClient); err != nil {
-			return nil, fmt.Errorf("could not ensure Viking network on host %s: %v", dockerClient.SSH.RemoteAddr().String(), err)
-		}
-	}
-
-	manager := findManager(nodes)
-	if manager == nil {
-		return nil, errors.New("could not find manager node")
-	}
-
-	managerClient := findClientByNodeAddr(dockerClients, manager.Status.Addr)
-	if managerClient == nil {
-		return nil, errors.New("could not find manager client")
-	}
-
-	return managerClient, nil
-}
-
-func getSwarmStatus(ctx context.Context, clients []*dockerhelper.Client) (*swarm.Swarm, []swarm.Node, error) {
-	var status *swarm.Swarm
-	var swarmAddr string
-	nodes := make([]swarm.Node, 0)
-
-	for _, dockerClient := range clients {
-		s, err := dockerClient.SwarmInspect(ctx)
-		if err != nil {
-			if client.IsErrConnectionFailed(err) {
-				return nil, nil, err
-			}
-			continue
-		}
-
-		if status != nil && s.ID != status.ID {
-			return nil, nil, fmt.Errorf("%s and %s are part of different swarms", swarmAddr, dockerClient.SSH.RemoteAddr().String())
-		}
-
-		if status != nil {
-			continue
-		}
-
-		status = &s
-		swarmAddr = dockerClient.SSH.RemoteAddr().String()
-
-		nodes, err = dockerClient.NodeList(ctx, types.NodeListOptions{})
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not list nodes: %v", err)
-		}
-	}
-
-	return status, nodes, nil
-}
-
-func initSwarm(ctx context.Context, clients []*dockerhelper.Client) (*swarm.Swarm, []swarm.Node, error) {
-	if len(clients) == 0 {
-		return nil, nil, fmt.Errorf("no hosts provided")
-	}
-
-	managersCount := len(clients)/2 + 1
-
-	if _, err := clients[0].SwarmInit(ctx, swarm.InitRequest{
-		ListenAddr: "0.0.0.0:2377",
-		Spec: swarm.Spec{
-			Annotations: swarm.Annotations{
-				Labels: map[string]string{
-					swarmLabel: "true",
-				},
-			},
-		},
-	}); err != nil {
-		return nil, nil, err
-	}
-
-	status, err := clients[0].SwarmInspect(ctx)
-	if err != nil {
-		if client.IsErrConnectionFailed(err) {
-			return nil, nil, err
-		}
-
-		return nil, nil, fmt.Errorf("failed to initialize swarm: %v", err)
-	}
-	leaderHost, _, err := net.SplitHostPort(clients[0].SSH.RemoteAddr().String())
-	if err != nil {
-		return nil, nil, fmt.Errorf("could not parse remote address: %v", err)
-	}
-	leaderAddr := net.JoinHostPort(leaderHost, "2377")
-
-	other := clients[1:]
-	managers := other[:managersCount-1]
-	workers := other[managersCount-1:]
-
-	for _, manager := range managers {
-		if err := manager.SwarmJoin(ctx, swarm.JoinRequest{
-			ListenAddr: "0.0.0.0:2377",
-			JoinToken:  status.JoinTokens.Manager,
-			RemoteAddrs: []string{
-				leaderAddr,
-			},
-		}); err != nil {
-			return nil, nil, fmt.Errorf("could not join manager %s to swarm: %v", manager.SSH.RemoteAddr().String(), err)
-		}
-	}
-
-	for _, worker := range workers {
-		if err := worker.SwarmJoin(ctx, swarm.JoinRequest{
-			JoinToken: status.JoinTokens.Worker,
-			RemoteAddrs: []string{
-				leaderAddr,
-			},
-		}); err != nil {
-			return nil, nil, fmt.Errorf("could not join worker %s to swarm: %v", worker.SSH.RemoteAddr().String(), err)
-		}
-	}
-
-	nodes, err := clients[0].NodeList(ctx, types.NodeListOptions{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("could not list nodes: %v", err)
-	}
-
-	return &status, nodes, nil
-}
-
-func findManager(nodes []swarm.Node) *swarm.Node {
-	idx := slices.IndexFunc(nodes, func(node swarm.Node) bool {
-		return node.ManagerStatus != nil
-	})
-	if idx == -1 {
-		return nil
-	}
-
-	return &nodes[idx]
-}
-
-func findClientByNodeAddr(clients []*dockerhelper.Client, addr string) *dockerhelper.Client {
-	idx := slices.IndexFunc(clients, func(client *dockerhelper.Client) bool {
-		ip, _, err := net.SplitHostPort(client.SSH.RemoteAddr().String())
-		if err != nil {
-			return false
-		}
-
-		return ip == addr
-	})
-	if idx == -1 {
-		return nil
-	}
-
-	return clients[idx]
-}
-
-func joinMissingHosts(ctx context.Context, vikingCli *command.Cli, clients []*dockerhelper.Client, status *swarm.Swarm, nodes []swarm.Node) error {
-	manager := findManager(nodes)
-	if manager == nil {
-		return fmt.Errorf("could not find swarm manager node")
-	}
-
-	for _, client := range clients {
-		found := false
-
-		ip, _, err := net.SplitHostPort(client.SSH.RemoteAddr().String())
-		if err != nil {
-			return fmt.Errorf("could not parse node address: %v", err)
-		}
-
-		for _, node := range nodes {
-			if node.Status.Addr == ip {
-				found = true
-				break
-			}
-		}
-
-		if found {
-			continue
-		}
-
-		fmt.Fprintf(vikingCli.Out, "Joining %s to the swarm\n", client.SSH.RemoteAddr().String())
-		if err := client.SwarmJoin(ctx, swarm.JoinRequest{
-			JoinToken: status.JoinTokens.Worker,
-			RemoteAddrs: []string{
-				net.JoinHostPort(manager.ManagerStatus.Addr, "2377"),
-			},
-		}); err != nil {
-			return fmt.Errorf("could not join worker %s to swarm: %v", client.SSH.RemoteAddr().String(), err)
-		}
-	}
-
-	return nil
-}
-
-func ensureVikingNetwork(ctx context.Context, client *dockerhelper.Client) error {
-	networks, err := client.NetworkList(ctx, network.ListOptions{})
-	if err != nil {
-		return err
-	}
-
-	for _, network := range networks {
-		if network.Name == vikingNetworkName {
-			return nil
-		}
-	}
-
-	_, err = client.NetworkCreate(ctx, vikingNetworkName, network.CreateOptions{
-		Driver: "overlay",
-	})
-	return err
+	return runService(ctx, vikingCli, cl, options)
 }
 
 type healthOptions struct {

@@ -22,12 +22,10 @@ type cmdConn struct {
 }
 
 func (c *cmdConn) Read(p []byte) (n int, err error) {
-	fmt.Printf("Read: %s\n", p)
 	return c.in.Read(p)
 }
 
 func (c *cmdConn) Write(p []byte) (n int, err error) {
-	fmt.Printf("Write: %s\n", p)
 	return c.out.Write(p)
 }
 
