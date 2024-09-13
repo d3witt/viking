@@ -47,6 +47,8 @@ func main() {
 			machine.NewCopyCmd(vikingCli),
 			service.NewRunCmd(vikingCli),
 			service.NewListCommand(vikingCli),
+			service.NewRemoveCommand(vikingCli),
+			service.NewLogsCommand(vikingCli),
 
 			// Other commands
 			key.NewCmd(vikingCli),

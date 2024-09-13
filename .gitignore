@@ -15,3 +15,5 @@ go.work.sum
 .env
 
 dist/
+
+design.md
