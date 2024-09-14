@@ -34,28 +34,17 @@ func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 }
 
 func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) error {
-	if machine == "" {
-		clients, err := vikingCli.DialMachines()
-		defer func() {
-			for _, client := range clients {
-				client.Close()
-			}
-		}()
-
-		if err != nil {
-			return err
-		}
-
-		return executeCommand(vikingCli, cmd, tty, clients...)
-	}
-
-	client, err := vikingCli.DialMachine(machine)
+	clients, err := getRemoteClients(vikingCli, machine)
 	if err != nil {
 		return err
 	}
-	defer client.Close()
+	defer func() {
+		for _, client := range clients {
+			client.Close()
+		}
+	}()
 
-	return executeCommand(vikingCli, cmd, tty, client)
+	return executeCommand(vikingCli, cmd, tty, clients...)
 }
 
 func executeCommand(vikingCli *command.Cli, cmd string, tty bool, clients ...*ssh.Client) error {

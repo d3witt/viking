@@ -17,3 +17,4 @@ go.work.sum
 dist/
 
 design.md
+viking.toml

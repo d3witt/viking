@@ -83,7 +83,7 @@ func runAdd(vikingCli *command.Cli, hosts []string, port int, user, key string) 
 		return err
 	}
 
-	fmt.Fprint(vikingCli.Out, strings.Join(hosts, ", "))
+	fmt.Fprintln(vikingCli.Out, strings.Join(hosts, "\n"))
 
 	return nil
 }

@@ -33,15 +33,6 @@ func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 	}
 }
 
-func parseMachinePath(fullPath string) (machine, path string) {
-	if strings.Contains(fullPath, ":") {
-		parts := strings.SplitN(fullPath, ":", 2)
-		return parts[0], parts[1]
-	}
-
-	return "", fullPath
-}
-
 func runCopy(vikingCli *command.Cli, from, to string) error {
 	fromMachine, fromPath := parseMachinePath(from)
 	toMachine, toPath := parseMachinePath(to)
@@ -54,39 +45,23 @@ func runCopy(vikingCli *command.Cli, from, to string) error {
 		return fmt.Errorf("cannot copy between two remote machines")
 	}
 
-	machine := fromMachine + toMachine
-
-	var clients []*ssh.Client
-	var err error
-
-	if strings.ToLower(machine) == "app" {
-		clients, err = vikingCli.DialMachines()
-		if err != nil {
-			return err
-		}
-		defer func() {
-			for _, client := range clients {
-				client.Close()
-			}
-		}()
-	} else {
-		client, err := vikingCli.DialMachine(machine)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-
-		clients = []*ssh.Client{client}
+	clients, err := getRemoteClients(vikingCli, fromMachine+toMachine)
+	if err != nil {
+		return err
 	}
+	defer func() {
+		for _, client := range clients {
+			client.Close()
+		}
+	}()
 
 	if fromMachine != "" {
-		return copyFromRemote(vikingCli, clients, fromPath, toPath)
+		return copyFromRemote(vikingCli, fromPath, toPath, clients...)
 	}
-
-	return copyToRemote(vikingCli, clients, fromPath, toPath)
+	return copyToRemote(vikingCli, fromPath, toPath, clients...)
 }
 
-func copyToRemote(vikingCli *command.Cli, clients []*ssh.Client, from, to string) error {
+func copyToRemote(vikingCli *command.Cli, from, to string, clients ...*ssh.Client) error {
 	data, err := archive.Tar(from)
 	if err != nil {
 		return err
@@ -155,7 +130,7 @@ func copyToRemote(vikingCli *command.Cli, clients []*ssh.Client, from, to string
 	return nil
 }
 
-func copyFromRemote(vikingCli *command.Cli, clients []*ssh.Client, from, to string) error {
+func copyFromRemote(vikingCli *command.Cli, from, to string, clients ...*ssh.Client) error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errorMessages []string
@@ -211,6 +186,15 @@ func copyFromRemote(vikingCli *command.Cli, clients []*ssh.Client, from, to stri
 	printCopyStatus(vikingCli.Out, len(clients), errorMessages)
 
 	return nil
+}
+
+func parseMachinePath(fullPath string) (machine, path string) {
+	if strings.Contains(fullPath, ":") {
+		parts := strings.SplitN(fullPath, ":", 2)
+		return parts[0], parts[1]
+	}
+
+	return "", fullPath
 }
 
 func printCopyStatus(out io.Writer, total int, errorMessages []string) {

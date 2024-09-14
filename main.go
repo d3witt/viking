@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/d3witt/viking/cli/command"
+	"github.com/d3witt/viking/cli/command/app"
 	"github.com/d3witt/viking/cli/command/cfg"
 	"github.com/d3witt/viking/cli/command/key"
 	"github.com/d3witt/viking/cli/command/machine"
@@ -42,6 +43,7 @@ func main() {
 		Usage:   "Manage your SSH keys and remote machines",
 		Version: version,
 		Commands: []*cli.Command{
+			app.NewInitCmd(vikingCli),
 			// Often used commands
 			machine.NewExecuteCmd(vikingCli),
 			machine.NewCopyCmd(vikingCli),

@@ -3,6 +3,7 @@ package appconf
 import (
 	"errors"
 	"os"
+	"path"
 
 	"github.com/BurntSushi/toml"
 	"github.com/d3witt/viking/config"
@@ -23,6 +24,19 @@ func writeConfigFile(filename string, data []byte) error {
 
 func ParseConfig() (Config, error) {
 	return parseConfig(configFile)
+}
+
+func NewDefaultConfig() (Config, error) {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return Config{}, err
+	}
+
+	name := path.Base(currentDir)
+	cfg := defaultConfig(name)
+	err = cfg.Save()
+
+	return cfg, err
 }
 
 func parseConfig(filename string) (Config, error) {
