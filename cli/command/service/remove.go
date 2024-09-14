@@ -14,16 +14,15 @@ func NewRemoveCommand(vikingCli *command.Cli) *cli.Command {
 		Usage: "Remove a service",
 		Args:  true,
 		Action: func(ctx *cli.Context) error {
-			machine := ctx.Args().First()
-			service := ctx.Args().Get(1)
+			service := ctx.Args().First()
 
-			return runRemove(ctx.Context, vikingCli, machine, service)
+			return runRemove(ctx.Context, vikingCli, service)
 		},
 	}
 }
 
-func runRemove(ctx context.Context, vikingCli *command.Cli, machine, service string) error {
-	cl, err := vikingCli.DialManagerNode(ctx, machine)
+func runRemove(ctx context.Context, vikingCli *command.Cli, service string) error {
+	cl, err := vikingCli.DialManagerNode(ctx)
 	if err != nil {
 		return err
 	}
@@ -37,6 +36,6 @@ func runRemove(ctx context.Context, vikingCli *command.Cli, machine, service str
 		return err
 	}
 
-	fmt.Fprintf(vikingCli.Out, "Service %s removed from machine %s.\n", service, machine)
+	fmt.Fprintf(vikingCli.Out, "Service %s removed.\n", service)
 	return nil
 }

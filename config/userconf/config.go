@@ -1,19 +1,22 @@
-package config
+package userconf
 
 import (
 	"github.com/BurntSushi/toml"
+	"github.com/d3witt/viking/config"
+)
+
+const (
+	VIKING_CONFIG_DIR = "VIKING_CONFIG_DIR"
 )
 
 type Config struct {
-	Keys     map[string]Key
-	Machines map[string]Machine
-	Profile  Profile
+	Keys    map[string]Key
+	Profile Profile
 }
 
 func defaultConfig() Config {
 	return Config{
-		Keys:     make(map[string]Key),
-		Machines: make(map[string]Machine),
+		Keys: make(map[string]Key),
 	}
 }
 
@@ -28,5 +31,5 @@ func (c Config) Save() error {
 		return err
 	}
 
-	return writeConfigFile(filename, data)
+	return config.WriteConfigFile(filename, data)
 }

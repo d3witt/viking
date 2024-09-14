@@ -15,16 +15,15 @@ func NewLogsCommand(vikingCli *command.Cli) *cli.Command {
 		Usage: "Logs of a service",
 		Args:  true,
 		Action: func(ctx *cli.Context) error {
-			machine := ctx.Args().First()
-			service := ctx.Args().Get(1)
+			service := ctx.Args().First()
 
-			return runLogs(ctx.Context, vikingCli, machine, service)
+			return runLogs(ctx.Context, vikingCli, service)
 		},
 	}
 }
 
-func runLogs(ctx context.Context, vikingCli *command.Cli, machine, service string) error {
-	cl, err := vikingCli.DialManagerNode(ctx, machine)
+func runLogs(ctx context.Context, vikingCli *command.Cli, service string) error {
+	cl, err := vikingCli.DialManagerNode(ctx)
 	if err != nil {
 		return err
 	}

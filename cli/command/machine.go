@@ -1,64 +1,92 @@
 package command
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
-	"github.com/d3witt/viking/config"
+	"github.com/d3witt/viking/config/appconf"
 	"github.com/d3witt/viking/sshexec"
 	"golang.org/x/crypto/ssh"
 )
 
-// DialMachine dials all hosts of a machine and returns a slice of SSH clients
+// DialMachines dials all hosts of a machine and returns a slice of SSH clients
 // for available hosts. If there are no available hosts, DialMachine returns
 // an error.
-func (c *Cli) DialMachine(machine string) ([]*ssh.Client, error) {
-	m, err := c.Config.GetMachineByName(machine)
+func (c *Cli) DialMachines() ([]*ssh.Client, error) {
+	conf, err := c.AppConfig()
 	if err != nil {
 		return nil, err
 	}
 
+	machines := conf.ListMachines()
+
 	var (
-		clients = make([]*ssh.Client, 0, len(m.Hosts))
+		clients = make([]*ssh.Client, 0, len(machines))
 		mu      sync.Mutex
 		wg      sync.WaitGroup
 	)
 
-	for _, host := range m.Hosts {
+	for _, machine := range machines {
 		wg.Add(1)
-		go func(h config.Host) {
+		go func(m appconf.Machine) {
 			defer wg.Done()
-			client, dialErr := c.DialHost(h)
 
+			private, passphrase, err := c.getSSHKeyDetails(m.Key)
+			if err != nil {
+				fmt.Fprint(c.Out, err.Error())
+				return
+			}
+
+			client, dialErr := sshexec.SSHClient(m.IP.String(), m.Port, m.User, private, passphrase)
 			if dialErr != nil {
-				fmt.Fprintf(c.Out, "Failed to dial %s: %v\n", h.IP, dialErr)
+				fmt.Fprintf(c.Out, "Failed to dial %s: %v\n", m.IP, dialErr)
 				return
 			}
 
 			mu.Lock()
 			clients = append(clients, client)
 			mu.Unlock()
-		}(host)
+		}(machine)
 	}
 
 	wg.Wait()
 
 	if len(clients) == 0 {
-		return nil, fmt.Errorf("no hosts available for machine %s", machine)
+		return nil, errors.New("no available hosts")
 	}
 
 	return clients, nil
 }
 
-func (c *Cli) DialHost(host config.Host) (*ssh.Client, error) {
-	if host.Key == "" {
-		return sshexec.SSHClient(host.IP.String(), host.Port, host.User, "", "")
-	}
-
-	key, err := c.Config.GetKeyByName(host.Key)
+func (c *Cli) DialMachine(machine string) (*ssh.Client, error) {
+	conf, err := c.AppConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	return sshexec.SSHClient(host.IP.String(), host.Port, host.User, key.Private, key.Passphrase)
+	m, err := conf.GetMachine(machine)
+	if err != nil {
+		return nil, err
+	}
+
+	private, passphrase, err := c.getSSHKeyDetails(m.Key)
+	if err != nil {
+		return nil, err
+	}
+
+	return sshexec.SSHClient(m.IP.String(), m.Port, m.User, private, passphrase)
+}
+
+func (c *Cli) getSSHKeyDetails(key string) (private, passphrase string, err error) {
+	if key == "" {
+		return "", "", nil
+	}
+
+	k, err := c.Config.GetKeyByName(key)
+	if err != nil {
+		return "", "", err
+	}
+
+	return k.Private, k.Passphrase, nil
 }

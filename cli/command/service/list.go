@@ -14,17 +14,14 @@ func NewListCommand(vikingCli *command.Cli) *cli.Command {
 		Name:    "list",
 		Usage:   "List all services",
 		Aliases: []string{"ls"},
-		Args:    true,
 		Action: func(ctx *cli.Context) error {
-			machine := ctx.Args().First()
-
-			return listServices(ctx.Context, vikingCli, machine)
+			return listServices(ctx.Context, vikingCli)
 		},
 	}
 }
 
-func listServices(ctx context.Context, vikingCli *command.Cli, machine string) error {
-	cl, err := vikingCli.DialManagerNode(ctx, machine)
+func listServices(ctx context.Context, vikingCli *command.Cli) error {
+	cl, err := vikingCli.DialManagerNode(ctx)
 	if err != nil {
 		return err
 	}

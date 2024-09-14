@@ -97,8 +97,6 @@ func NewRunCmd(vikingCli *command.Cli) *cli.Command {
 		},
 		Args: true,
 		Action: func(c *cli.Context) error {
-			machine := c.Args().First()
-
 			healthInterval, err := parseTime(c.String("health-interval"))
 			if err != nil {
 				return fmt.Errorf("invalid health-interval: %w", err)
@@ -121,8 +119,8 @@ func NewRunCmd(vikingCli *command.Cli) *cli.Command {
 				return fmt.Errorf("invalid label: %w", err)
 			}
 
-			image := c.Args().Get(1)
-			cmd := c.Args().Slice()[2:]
+			image := c.Args().First()
+			cmd := c.Args().Tail()
 
 			options := serviceOptions{
 				Image:    image,
@@ -147,7 +145,7 @@ func NewRunCmd(vikingCli *command.Cli) *cli.Command {
 				StopSignal:      c.String("stop-signal"),
 			}
 
-			return runDeploy(c.Context, vikingCli, machine, options)
+			return runDeploy(c.Context, vikingCli, options)
 		},
 	}
 }
@@ -174,8 +172,8 @@ func parseTime(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
 }
 
-func runDeploy(ctx context.Context, vikingCli *command.Cli, machine string, options serviceOptions) error {
-	cl, err := vikingCli.DialManagerNode(ctx, machine)
+func runDeploy(ctx context.Context, vikingCli *command.Cli, options serviceOptions) error {
+	cl, err := vikingCli.DialManagerNode(ctx)
 	if err != nil {
 		return err
 	}

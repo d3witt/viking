@@ -1,4 +1,4 @@
-package config
+package userconf
 
 type Profile struct {
 	Email string

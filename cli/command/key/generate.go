@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/d3witt/viking/cli/command"
-	"github.com/d3witt/viking/config"
+	"github.com/d3witt/viking/config/userconf"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/crypto/ssh"
 )
@@ -44,7 +44,7 @@ func runGenerate(vikingCli *command.Cli, name string) error {
 	}
 
 	if err = vikingCli.Config.AddKey(
-		config.Key{
+		userconf.Key{
 			Name:      name,
 			Private:   string(private),
 			Public:    string(public),

@@ -11,7 +11,7 @@ import (
 	"github.com/d3witt/viking/cli/command/key"
 	"github.com/d3witt/viking/cli/command/machine"
 	"github.com/d3witt/viking/cli/command/service"
-	"github.com/d3witt/viking/config"
+	"github.com/d3witt/viking/config/userconf"
 	"github.com/d3witt/viking/streams"
 	"github.com/urfave/cli/v2"
 )
@@ -19,7 +19,7 @@ import (
 var version = "dev" // set by build script
 
 func main() {
-	c, err := config.ParseDefaultConfig()
+	c, err := userconf.ParseDefaultConfig()
 	if err != nil {
 		fmt.Println(err.Error())
 		return
@@ -30,7 +30,7 @@ func main() {
 	}))
 
 	vikingCli := &command.Cli{
-		Config:    &c,
+		Config:    c,
 		In:        streams.StdIn,
 		Out:       streams.StdOut,
 		Err:       streams.StdErr,

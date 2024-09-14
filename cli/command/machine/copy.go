@@ -22,14 +22,13 @@ func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 		Name:      "copy",
 		Aliases:   []string{"cp"},
 		Usage:     "Copy files/folders between local and remote machine",
-		Args:      true,
-		ArgsUsage: "MACHINE:SRC_PATH DEST_PATH | SRC_PATH MACHINE:DEST_PATH",
+		ArgsUsage: "[APP|IP]:SRC_PATH DEST_PATH | SRC_PATH [APP|IP]:DEST_PATH",
 		Action: func(ctx *cli.Context) error {
-			if ctx.NArg() != 2 {
-				return fmt.Errorf("expected 2 arguments, got %d", ctx.NArg())
+			args := ctx.Args()
+			if args.Len() != 2 {
+				return cli.ShowCommandHelp(ctx, "copy")
 			}
-
-			return runCopy(vikingCli, ctx.Args().Get(0), ctx.Args().Get(1))
+			return runCopy(vikingCli, args.Get(0), args.Get(1))
 		},
 	}
 }
@@ -57,15 +56,27 @@ func runCopy(vikingCli *command.Cli, from, to string) error {
 
 	machine := fromMachine + toMachine
 
-	clients, err := vikingCli.DialMachine(machine)
-	defer func() {
-		for _, client := range clients {
-			client.Close()
-		}
-	}()
+	var clients []*ssh.Client
+	var err error
 
-	if err != nil {
-		return err
+	if strings.ToLower(machine) == "app" {
+		clients, err = vikingCli.DialMachines()
+		if err != nil {
+			return err
+		}
+		defer func() {
+			for _, client := range clients {
+				client.Close()
+			}
+		}()
+	} else {
+		client, err := vikingCli.DialMachine(machine)
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+
+		clients = []*ssh.Client{client}
 	}
 
 	if fromMachine != "" {

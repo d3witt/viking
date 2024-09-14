@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/d3witt/viking/cli/command"
-	"github.com/d3witt/viking/config"
+	"github.com/d3witt/viking/config/userconf"
 
 	"github.com/urfave/cli/v2"
 )
@@ -14,7 +14,7 @@ func NewConfigCmd(vikingCli *command.Cli) *cli.Command {
 		Name:  "config",
 		Usage: "Get config directory path",
 		Action: func(ctx *cli.Context) error {
-			path, err := config.ConfigDir()
+			path, err := userconf.ConfigDir()
 			if err != nil {
 				return err
 			}

@@ -6,8 +6,8 @@ import (
 	"github.com/d3witt/viking/dockerhelper"
 )
 
-func (c *Cli) DialManagerNode(ctx context.Context, machine string) (cl *dockerhelper.Client, err error) {
-	clients, err := c.DialMachine(machine)
+func (c *Cli) DialManagerNode(ctx context.Context) (cl *dockerhelper.Client, err error) {
+	clients, err := c.DialMachines()
 	if err != nil {
 		return nil, err
 	}

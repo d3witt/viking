@@ -9,15 +9,20 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/d3witt/viking/config"
+	"github.com/d3witt/viking/config/appconf"
+	"github.com/d3witt/viking/config/userconf"
 	"github.com/d3witt/viking/streams"
 )
 
 type Cli struct {
-	Config    *config.Config
+	Config    userconf.Config
 	Out, Err  *streams.Out
 	In        *streams.In
 	CmdLogger *slog.Logger
+}
+
+func (c *Cli) AppConfig() (appconf.Config, error) {
+	return appconf.ParseConfig()
 }
 
 func GenerateRandomName() string {

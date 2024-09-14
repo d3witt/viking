@@ -2,7 +2,6 @@ package machine
 
 import (
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 
@@ -15,8 +14,8 @@ import (
 func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "exec",
-		Usage:     "Execute shell command on machine",
-		ArgsUsage: "NAME \"COMMAND\"",
+		Usage:     "Execute shell command on machine(s)",
+		ArgsUsage: "MACHINE \"COMMAND\"",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:    "tty",
@@ -35,17 +34,31 @@ func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 }
 
 func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) error {
-	clients, err := vikingCli.DialMachine(machine)
-	defer func() {
-		for _, client := range clients {
-			client.Close()
-		}
-	}()
+	if machine == "" {
+		clients, err := vikingCli.DialMachines()
+		defer func() {
+			for _, client := range clients {
+				client.Close()
+			}
+		}()
 
+		if err != nil {
+			return err
+		}
+
+		return executeCommand(vikingCli, cmd, tty, clients...)
+	}
+
+	client, err := vikingCli.DialMachine(machine)
 	if err != nil {
 		return err
 	}
+	defer client.Close()
 
+	return executeCommand(vikingCli, cmd, tty, client)
+}
+
+func executeCommand(vikingCli *command.Cli, cmd string, tty bool, clients ...*ssh.Client) error {
 	if tty {
 		if len(clients) != 1 {
 			return fmt.Errorf("cannot allocate a pseudo-TTY to multiple hosts")
@@ -69,25 +82,18 @@ func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) er
 				errOut = errOut.WithPrefix(prefix + "error: ")
 			}
 
-			if err := execute(out, client, cmd); err != nil {
-				fmt.Fprintln(errOut, err.Error())
+			sshCmd := sshexec.Command(client, cmd)
+
+			output, err := sshCmd.CombinedOutput()
+			if handleSSHError(err) != nil {
+				fmt.Fprint(errOut, string(output))
 			}
+
+			fmt.Fprint(out, string(output))
 		}(client)
 	}
 
 	wg.Wait()
-	return nil
-}
-
-func execute(out io.Writer, client *ssh.Client, cmd string) error {
-	sshCmd := sshexec.Command(client, cmd)
-
-	output, err := sshCmd.CombinedOutput()
-	if handleSSHError(err) != nil {
-		return err
-	}
-
-	fmt.Fprint(out, string(output))
 	return nil
 }
 

@@ -6,26 +6,20 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/d3witt/viking/cli/command"
-	"github.com/d3witt/viking/config"
+	"github.com/d3witt/viking/config/appconf"
 	"github.com/urfave/cli/v2"
 )
 
 func NewAddCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:        "add",
-		Usage:       "Add a new machine",
-		Description: "This command adds a new machine to the list of machines. No action is taken on the machine itself. Ensure your computer has SSH access to this machine.",
+		Usage:       "Add a new machine(s)",
+		Description: "This command adds a new machine(s) to the viking config. No action is taken on the machine itself.",
 		Args:        true,
 		ArgsUsage:   "[USER@]HOST[:PORT]...",
 		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "name",
-				Aliases: []string{"n"},
-				Usage:   "Machine name",
-			},
 			&cli.StringFlag{
 				Name:    "user",
 				Aliases: []string{"u"},
@@ -45,14 +39,53 @@ func NewAddCmd(vikingCli *command.Cli) *cli.Command {
 		},
 		Action: func(ctx *cli.Context) error {
 			hosts := ctx.Args().Slice()
-			name := ctx.String("name")
 			user := ctx.String("user")
 			key := ctx.String("key")
 			port := ctx.Int("port")
 
-			return runAdd(vikingCli, hosts, port, name, user, key)
+			return runAdd(vikingCli, hosts, port, user, key)
 		},
 	}
+}
+
+func runAdd(vikingCli *command.Cli, hosts []string, port int, user, key string) error {
+	if key != "" {
+		_, err := vikingCli.Config.GetKeyByName(key)
+		if err != nil {
+			return err
+		}
+	}
+
+	machines := make([]appconf.Machine, 0, len(hosts))
+	for _, host := range hosts {
+		user, hostIp, port, err := parseMachine(host, user, port)
+		if err != nil {
+			return err
+		}
+
+		m := appconf.Machine{
+			IP:   hostIp,
+			Port: port,
+			User: user,
+			Key:  key,
+		}
+
+		machines = append(machines, m)
+	}
+
+	conf, err := vikingCli.AppConfig()
+	if err != nil {
+		return err
+	}
+
+	err = conf.AddMachine(machines...)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprint(vikingCli.Out, strings.Join(hosts, ", "))
+
+	return nil
 }
 
 func parseMachine(val, defaultUser string, defaultPort int) (user string, ip net.IP, port int, err error) {
@@ -81,45 +114,4 @@ func parseMachine(val, defaultUser string, defaultPort int) (user string, ip net
 	}
 
 	return
-}
-
-func runAdd(vikingCli *command.Cli, hosts []string, port int, name, user, key string) error {
-	if name == "" {
-		name = command.GenerateRandomName()
-	}
-
-	if key != "" {
-		_, err := vikingCli.Config.GetKeyByName(key)
-		if err != nil {
-			return err
-		}
-	}
-
-	m := config.Machine{
-		Name:      name,
-		Hosts:     []config.Host{},
-		CreatedAt: time.Now(),
-	}
-
-	for _, host := range hosts {
-		user, hostIp, port, err := parseMachine(host, user, port)
-		if err != nil {
-			return err
-		}
-
-		m.Hosts = append(m.Hosts, config.Host{
-			IP:   hostIp,
-			Port: port,
-			User: user,
-			Key:  key,
-		})
-	}
-
-	if err := vikingCli.Config.AddMachine(m); err != nil {
-		return err
-	}
-
-	fmt.Fprintf(vikingCli.Out, "Machine %s added.\n", name)
-
-	return nil
 }

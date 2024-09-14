@@ -7,17 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
-
-	"github.com/BurntSushi/toml"
 )
 
-const (
-	VIKING_CONFIG_DIR = "VIKING_CONFIG_DIR"
-)
-
-func ConfigDir() (string, error) {
+func ConfigDir(dir, configDirEnv string) (string, error) {
 	var path string
-	if a := os.Getenv(VIKING_CONFIG_DIR); a != "" {
+	if a := os.Getenv(configDirEnv); a != "" {
 		path = a
 	} else {
 		b, err := os.UserConfigDir()
@@ -25,7 +19,7 @@ func ConfigDir() (string, error) {
 			return "", fmt.Errorf("failed to retrieve config dir path: %w", err)
 		}
 
-		path = filepath.Join(b, "viking")
+		path = filepath.Join(b, dir)
 	}
 
 	if !dirExists(path) {
@@ -47,25 +41,7 @@ func fileExists(path string) bool {
 	return err == nil && !f.IsDir()
 }
 
-func configFile() (string, error) {
-	path, err := ConfigDir()
-	if err != nil {
-		return "", err
-	}
-
-	return filepath.Join(path, defaultProfileName+".toml"), nil
-}
-
-func ParseDefaultConfig() (Config, error) {
-	path, err := configFile()
-	if err != nil {
-		return Config{}, err
-	}
-
-	return parseConfig(path)
-}
-
-func readConfigFile(filename string) ([]byte, error) {
+func ReadConfigFile(filename string) ([]byte, error) {
 	f, err := os.Open(filename)
 	if err != nil {
 		return nil, pathError(err)
@@ -80,7 +56,7 @@ func readConfigFile(filename string) ([]byte, error) {
 	return data, nil
 }
 
-func writeConfigFile(filename string, data []byte) error {
+func WriteConfigFile(filename string, data []byte) error {
 	err := os.MkdirAll(filepath.Dir(filename), 0o771)
 	if err != nil {
 		return pathError(err)
@@ -94,27 +70,6 @@ func writeConfigFile(filename string, data []byte) error {
 
 	_, err = cfgFile.Write(data)
 	return err
-}
-
-func parseConfigFile(filename string) (cfg Config, err error) {
-	data, err := readConfigFile(filename)
-	if err != nil {
-		return cfg, err
-	}
-
-	_, err = toml.Decode(string(data), &cfg)
-	return
-}
-
-func parseConfig(filename string) (Config, error) {
-	cfg, err := parseConfigFile(filename)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return defaultConfig(), nil
-		}
-	}
-
-	return cfg, err
 }
 
 func pathError(err error) error {

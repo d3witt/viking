@@ -1,11 +1,9 @@
 package machine
 
 import (
-	"sort"
 	"strconv"
 
 	"github.com/d3witt/viking/cli/command"
-	"github.com/dustin/go-humanize"
 	"github.com/urfave/cli/v2"
 )
 
@@ -20,33 +18,23 @@ func NewListCmd(vikingCli *command.Cli) *cli.Command {
 }
 
 func listMachines(vikingCli *command.Cli) error {
-	machines := vikingCli.Config.ListMachines()
+	conf, err := vikingCli.AppConfig()
+	if err != nil {
+		return err
+	}
 
-	sort.Slice(machines, func(i, j int) bool {
-		return machines[i].CreatedAt.After(machines[j].CreatedAt)
-	})
+	machines := conf.ListMachines()
 
-	data := [][]string{}
+	data := [][]string{
+		{"IP", "Port", "Key"},
+	}
 
 	for _, machine := range machines {
-		firstHost := machine.Hosts[0]
 		data = append(data, []string{
-			machine.Name,
-			firstHost.IP.String(),
-			strconv.Itoa(firstHost.Port),
-			firstHost.Key,
-			humanize.Time(machine.CreatedAt),
+			machine.IP.String(),
+			strconv.Itoa(machine.Port),
+			machine.Key,
 		})
-
-		for _, host := range machine.Hosts[1:] {
-			data = append(data, []string{
-				" ",
-				host.IP.String(),
-				strconv.Itoa(host.Port),
-				host.Key,
-				" ",
-			})
-		}
 	}
 
 	command.PrintTable(vikingCli.Out, data)

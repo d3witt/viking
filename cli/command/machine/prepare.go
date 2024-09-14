@@ -16,20 +16,16 @@ import (
 
 func NewPrepareCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
-		Name:      "prepare",
-		Usage:     "Install Docker, set up Docker Swarm, and launch Traefik",
-		Args:      true,
-		ArgsUsage: "MACHINE",
+		Name:  "prepare",
+		Usage: "Install Docker, set up Docker Swarm, and launch Traefik",
 		Action: func(ctx *cli.Context) error {
-			machine := ctx.Args().First()
-
-			return runPrepare(ctx.Context, vikingCli, machine)
+			return runPrepare(ctx.Context, vikingCli)
 		},
 	}
 }
 
-func runPrepare(ctx context.Context, vikingCli *command.Cli, machine string) error {
-	clients, err := vikingCli.DialMachine(machine)
+func runPrepare(ctx context.Context, vikingCli *command.Cli) error {
+	clients, err := vikingCli.DialMachines()
 	if err != nil {
 		return err
 	}

@@ -12,7 +12,7 @@ func NewRmCmd(vikingCli *command.Cli) *cli.Command {
 		Name:      "rm",
 		Usage:     "Remove a machine",
 		Args:      true,
-		ArgsUsage: "NAME",
+		ArgsUsage: "MACHINE",
 		Action: func(ctx *cli.Context) error {
 			machine := ctx.Args().First()
 			return runRemove(vikingCli, machine)
@@ -21,7 +21,12 @@ func NewRmCmd(vikingCli *command.Cli) *cli.Command {
 }
 
 func runRemove(vikingCli *command.Cli, machine string) error {
-	if err := vikingCli.Config.RemoveMachine(machine); err != nil {
+	conf, err := vikingCli.AppConfig()
+	if err != nil {
+		return err
+	}
+
+	if err := conf.RemoveMachine(machine); err != nil {
 		return err
 	}
 
