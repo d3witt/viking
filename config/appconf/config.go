@@ -1,9 +1,7 @@
 package appconf
 
 import (
-	"bytes"
-
-	"github.com/BurntSushi/toml"
+	"github.com/pelletier/go-toml/v2"
 )
 
 type Config struct {
@@ -19,21 +17,10 @@ func defaultConfig(name string) Config {
 }
 
 func (c Config) Save() error {
-	data, err := marshal(&c)
+	data, err := toml.Marshal(&c)
 	if err != nil {
 		return err
 	}
 
 	return writeConfigFile(configFile, data)
-}
-
-func marshal(v any) ([]byte, error) {
-	buff := new(bytes.Buffer)
-	encoder := toml.NewEncoder(buff)
-	encoder.Indent = ""
-
-	if err := encoder.Encode(v); err != nil {
-		return nil, err
-	}
-	return buff.Bytes(), nil
 }

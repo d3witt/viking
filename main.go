@@ -47,6 +47,8 @@ func main() {
 			// Often used commands
 			machine.NewExecuteCmd(vikingCli),
 			machine.NewCopyCmd(vikingCli),
+			machine.NewPrepareCmd(vikingCli),
+
 			service.NewRunCmd(vikingCli),
 			service.NewListCommand(vikingCli),
 			service.NewRemoveCommand(vikingCli),

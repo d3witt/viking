@@ -7,7 +7,6 @@ import (
 	"os"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/d3witt/viking/archive"
@@ -22,7 +21,7 @@ func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 		Name:      "copy",
 		Aliases:   []string{"cp"},
 		Usage:     "Copy files/folders between local and remote machine",
-		ArgsUsage: "[APP|IP]:SRC_PATH DEST_PATH | SRC_PATH [APP|IP]:DEST_PATH",
+		ArgsUsage: "[remote|IP]:SRC_PATH DEST_PATH | SRC_PATH [remote|IP]:DEST_PATH",
 		Action: func(ctx *cli.Context) error {
 			args := ctx.Args()
 			if args.Len() != 2 {
@@ -45,7 +44,7 @@ func runCopy(vikingCli *command.Cli, from, to string) error {
 		return fmt.Errorf("cannot copy between two remote machines")
 	}
 
-	clients, err := getRemoteClients(vikingCli, fromMachine+toMachine)
+	clients, err := dialCopyMachines(vikingCli, fromMachine, toMachine)
 	if err != nil {
 		return err
 	}
@@ -59,6 +58,19 @@ func runCopy(vikingCli *command.Cli, from, to string) error {
 		return copyFromRemote(vikingCli, fromPath, toPath, clients...)
 	}
 	return copyToRemote(vikingCli, fromPath, toPath, clients...)
+}
+
+func dialCopyMachines(vikingCli *command.Cli, fromMachine, toMachine string) ([]*ssh.Client, error) {
+	machine := fromMachine + toMachine
+	if strings.EqualFold(machine, "remote") {
+		return vikingCli.DialMachines()
+	} else {
+		client, err := vikingCli.DialMachine(machine)
+		if err != nil {
+			return nil, err
+		}
+		return []*ssh.Client{client}, nil
+	}
 }
 
 func copyToRemote(vikingCli *command.Cli, from, to string, clients ...*ssh.Client) error {
@@ -85,45 +97,32 @@ func copyToRemote(vikingCli *command.Cli, from, to string, clients ...*ssh.Clien
 		return err
 	}
 
-	var wg sync.WaitGroup
-	var mu sync.Mutex
 	var errorMessages []string
 
-	wg.Add(len(clients))
-
-	bar := copyProgressBar(
-		vikingCli.Out,
-		written*int64(len(clients)),
-		"Sending",
-	)
-
 	for _, client := range clients {
-		go func(client *ssh.Client) {
-			defer wg.Done()
+		// Open the temporary file for reading
+		tmpFile, err := os.Open(tmpFile.Name())
+		if err != nil {
+			errorMessages = append(errorMessages, fmt.Sprintf("Error opening temporary file: %v", err))
+			continue
+		}
 
-			// Open the temporary file for reading
-			tmpFile, err := os.Open(tmpFile.Name())
-			if err != nil {
-				mu.Lock()
-				errorMessages = append(errorMessages, fmt.Sprintf("Error opening temporary file: %v", err))
-				mu.Unlock()
-				return
-			}
-			defer tmpFile.Close()
+		bar := copyProgressBar(
+			vikingCli.Out,
+			written,
+			fmt.Sprintf("Sending to %s", client.RemoteAddr()),
+		)
 
-			// Create a multi-reader to read from the file and update the progress bar
-			reader := io.TeeReader(tmpFile, bar)
+		// Create a multi-reader to read from the file and update the progress bar
+		reader := io.TeeReader(tmpFile, bar)
 
-			if err := archive.UntarRemote(client, to, reader); err != nil {
-				mu.Lock()
-				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
-				mu.Unlock()
-				return
-			}
-		}(client)
+		if err := archive.UntarRemote(client, to, reader); err != nil {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
+		}
+
+		tmpFile.Close()
+		bar.Finish()
 	}
-
-	wg.Wait()
 
 	printCopyStatus(vikingCli.Out, len(clients), errorMessages)
 
@@ -131,57 +130,41 @@ func copyToRemote(vikingCli *command.Cli, from, to string, clients ...*ssh.Clien
 }
 
 func copyFromRemote(vikingCli *command.Cli, from, to string, clients ...*ssh.Client) error {
-	var wg sync.WaitGroup
-	var mu sync.Mutex
 	var errorMessages []string
 
-	wg.Add(len(clients))
-
-	bar := copyProgressBar(
-		vikingCli.Out,
-		-1,
-		"Receiving",
-	)
-
 	for _, client := range clients {
-		go func(client *ssh.Client) {
-			defer wg.Done()
+		dest := to
+		if len(clients) > 1 {
+			dest = path.Join(to, client.RemoteAddr().String())
+		}
 
-			dest := to
-			if len(clients) > 1 {
-				dest = path.Join(to, client.RemoteAddr().String())
-			}
+		data, err := archive.TarRemote(client, from)
+		if err != nil {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
+			continue
+		}
 
-			data, err := archive.TarRemote(client, from)
-			if err != nil {
-				mu.Lock()
-				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
-				mu.Unlock()
-				return
-			}
+		bar := copyProgressBar(
+			vikingCli.Out,
+			-1,
+			fmt.Sprintf("Receiving from %s", client.RemoteAddr()),
+		)
 
-			reader := io.TeeReader(data, bar)
+		reader := io.TeeReader(data, bar)
 
-			buf := new(bytes.Buffer)
-			_, err = buf.ReadFrom(reader)
-			if err != nil {
-				mu.Lock()
-				errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
-				mu.Unlock()
-				return
-			}
+		buf := new(bytes.Buffer)
+		_, err = buf.ReadFrom(reader)
+		if err != nil {
+			errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
+			continue
+		}
 
-			if err := archive.Untar(buf, dest); err != nil {
-				mu.Lock()
-				errorMessages = append(errorMessages, fmt.Sprintf("Error untar to %s: %v", dest, err))
-				mu.Unlock()
-				return
-			}
-		}(client)
+		if err := archive.Untar(buf, dest); err != nil {
+			errorMessages = append(errorMessages, fmt.Sprintf("Error untar to %s: %v", dest, err))
+		}
+
+		bar.Finish()
 	}
-
-	wg.Wait()
-	bar.Finish()
 
 	printCopyStatus(vikingCli.Out, len(clients), errorMessages)
 

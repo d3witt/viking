@@ -7,9 +7,9 @@ import (
 
 type Machine struct {
 	IP   net.IP `toml:"-"`
-	Port int    `toml:"port, omitempty"`
-	User string `toml:"user, omitempty"`
-	Key  string `toml:"key, omitempty"`
+	Port int    `toml:"port,omitempty"`
+	User string `toml:"user,omitempty"`
+	Key  string `toml:"key,omitempty"`
 }
 
 var (
@@ -28,6 +28,8 @@ func (c *Config) ListMachines() []Machine {
 			continue
 		}
 
+		setMachineDefaults(&machine)
+
 		machines = append(machines, machine)
 	}
 
@@ -41,6 +43,8 @@ func (c *Config) GetMachine(ip string) (Machine, error) {
 		if machine.IP == nil {
 			return Machine{}, ErrMachineNotFound
 		}
+
+		setMachineDefaults(&machine)
 
 		return machine, nil
 	}
@@ -70,4 +74,20 @@ func (c *Config) RemoveMachine(ip string) error {
 	delete(c.Machines, ip)
 
 	return c.Save()
+}
+
+func (c *Config) ClearMachines() error {
+	c.Machines = map[string]Machine{}
+
+	return c.Save()
+}
+
+func setMachineDefaults(machine *Machine) {
+	if machine.Port == 0 {
+		machine.Port = 22
+	}
+
+	if machine.User == "" {
+		machine.User = "root"
+	}
 }

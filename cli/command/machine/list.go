@@ -26,12 +26,11 @@ func listMachines(vikingCli *command.Cli) error {
 	machines := conf.ListMachines()
 
 	data := [][]string{
-		{" ", "IP", "Port", "Key"},
+		{"IP", "Port", "Key"},
 	}
 
-	for i, machine := range machines {
+	for _, machine := range machines {
 		data = append(data, []string{
-			strconv.Itoa(i + 1),
 			machine.IP.String(),
 			strconv.Itoa(machine.Port),
 			machine.Key,

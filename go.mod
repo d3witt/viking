@@ -40,6 +40,7 @@ require (
 	github.com/docker/cli v27.1.2+incompatible
 	github.com/docker/docker v27.1.2+incompatible
 	github.com/dustin/go-humanize v1.0.1
+	github.com/pelletier/go-toml/v2 v2.2.3
 	github.com/schollz/progressbar/v3 v3.14.6
 	github.com/urfave/cli/v2 v2.27.2
 	golang.design/x/clipboard v0.7.0

@@ -23,7 +23,6 @@ func NewAddCmd(vikingCli *command.Cli) *cli.Command {
 			&cli.StringFlag{
 				Name:    "user",
 				Aliases: []string{"u"},
-				Value:   "root",
 				Usage:   "SSH user name",
 			},
 			&cli.StringFlag{
@@ -34,7 +33,6 @@ func NewAddCmd(vikingCli *command.Cli) *cli.Command {
 			&cli.IntFlag{
 				Name:    "port",
 				Aliases: []string{"p"},
-				Value:   22,
 			},
 		},
 		Action: func(ctx *cli.Context) error {
@@ -83,7 +81,7 @@ func runAdd(vikingCli *command.Cli, hosts []string, port int, user, key string) 
 		return err
 	}
 
-	fmt.Fprintln(vikingCli.Out, strings.Join(hosts, "\n"))
+	fmt.Fprintln(vikingCli.Out, strings.Join(hosts, ", "))
 
 	return nil
 }

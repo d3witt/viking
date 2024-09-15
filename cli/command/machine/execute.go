@@ -3,7 +3,6 @@ package machine
 import (
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/sshexec"
@@ -15,8 +14,13 @@ func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "exec",
 		Usage:     "Execute shell command on machine(s)",
-		ArgsUsage: "MACHINE \"COMMAND\"",
+		ArgsUsage: "CMD ARGS...",
 		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "machine",
+				Aliases: []string{"m"},
+				Usage:   "Machine to execute command on",
+			},
 			&cli.BoolFlag{
 				Name:    "tty",
 				Aliases: []string{"t"},
@@ -24,17 +28,17 @@ func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 			},
 		},
 		Action: func(ctx *cli.Context) error {
-			machine := ctx.Args().First()
-			cmd := strings.Join(ctx.Args().Tail(), " ")
-			tty := ctx.Bool("tty")
-
-			return runExecute(vikingCli, machine, cmd, tty)
+			return runExecute(vikingCli, ctx)
 		},
 	}
 }
 
-func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) error {
-	clients, err := getRemoteClients(vikingCli, machine)
+func runExecute(vikingCli *command.Cli, ctx *cli.Context) error {
+	machine := ctx.String("machine")
+	cmd := strings.Join(ctx.Args().Slice(), " ")
+	tty := ctx.Bool("tty")
+
+	clients, err := getExecClients(vikingCli, machine)
 	if err != nil {
 		return err
 	}
@@ -44,45 +48,51 @@ func runExecute(vikingCli *command.Cli, machine string, cmd string, tty bool) er
 		}
 	}()
 
-	return executeCommand(vikingCli, cmd, tty, clients...)
-}
-
-func executeCommand(vikingCli *command.Cli, cmd string, tty bool, clients ...*ssh.Client) error {
 	if tty {
-		if len(clients) != 1 {
-			return fmt.Errorf("cannot allocate a pseudo-TTY to multiple hosts")
-		}
-
 		return executeTTY(vikingCli, clients[0], cmd)
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(len(clients))
+	return executeSequential(vikingCli, clients, cmd)
+}
 
-	for _, client := range clients {
-		go func(client *ssh.Client) {
-			defer wg.Done()
+func getExecClients(vikingCli *command.Cli, machine string) ([]*ssh.Client, error) {
+	if machine == "" {
+		return vikingCli.DialMachines()
+	}
+	client, err := vikingCli.DialMachine(machine)
+	if err != nil {
+		return nil, err
+	}
+	return []*ssh.Client{client}, nil
+}
 
-			out := vikingCli.Out
-			errOut := vikingCli.Err
-			if len(clients) > 1 {
-				prefix := fmt.Sprintf("%s: ", client.RemoteAddr().String())
-				out = out.WithPrefix(prefix)
-				errOut = errOut.WithPrefix(prefix + "error: ")
-			}
+func executeSequential(vikingCli *command.Cli, clients []*ssh.Client, cmd string) error {
+	for i, client := range clients {
+		if len(clients) > 1 {
+			fmt.Fprintln(vikingCli.Out, client.RemoteAddr())
+		}
 
-			sshCmd := sshexec.Command(client, cmd)
+		if err := executeCmd(vikingCli, client, cmd); err != nil {
+			fmt.Fprintf(vikingCli.Err, "Error: %v", err)
+		}
 
-			output, err := sshCmd.CombinedOutput()
-			if handleSSHError(err) != nil {
-				fmt.Fprint(errOut, string(output))
-			}
-
-			fmt.Fprint(out, string(output))
-		}(client)
+		if i < len(clients)-1 {
+			fmt.Fprintln(vikingCli.Out)
+		}
 	}
 
-	wg.Wait()
+	return nil
+}
+
+func executeCmd(vikingCli *command.Cli, client *ssh.Client, cmd string) error {
+	sshCmd := sshexec.Command(client, cmd)
+	output, err := sshCmd.CombinedOutput()
+
+	if err != nil && !isExitError(err) {
+		return err
+	}
+
+	fmt.Fprint(vikingCli.Out, string(output))
 	return nil
 }
 
@@ -91,7 +101,7 @@ func executeTTY(vikingCli *command.Cli, client *ssh.Client, cmd string) error {
 
 	w, h, err := vikingCli.In.Size()
 	if err != nil {
-		return err
+		return fmt.Errorf("get terminal size: %w", err)
 	}
 
 	sshCmd.Stdin = vikingCli.In
@@ -104,12 +114,14 @@ func executeTTY(vikingCli *command.Cli, client *ssh.Client, cmd string) error {
 	}
 	defer vikingCli.Out.Restore()
 
-	return handleSSHError(sshCmd.Run())
+	if err := sshCmd.Run(); err != nil && !isExitError(err) {
+		return err
+	}
+
+	return nil
 }
 
-func handleSSHError(err error) error {
-	if _, ok := err.(*sshexec.ExitError); ok {
-		return nil
-	}
-	return err
+func isExitError(err error) bool {
+	_, ok := err.(*sshexec.ExitError)
+	return ok
 }

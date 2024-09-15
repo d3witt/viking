@@ -5,8 +5,8 @@ import (
 	"os"
 	"path"
 
-	"github.com/BurntSushi/toml"
 	"github.com/d3witt/viking/config"
+	"github.com/pelletier/go-toml/v2"
 )
 
 var configFile = "./viking.toml"
@@ -47,6 +47,10 @@ func parseConfig(filename string) (Config, error) {
 		}
 	}
 
+	if cfg.Machines == nil {
+		cfg.Machines = make(map[string]Machine)
+	}
+
 	return cfg, err
 }
 
@@ -56,6 +60,6 @@ func parseConfigFile(filename string) (cfg Config, err error) {
 		return cfg, err
 	}
 
-	_, err = toml.Decode(string(data), &cfg)
+	err = toml.Unmarshal(data, &cfg)
 	return
 }
