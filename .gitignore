@@ -17,4 +17,5 @@ go.work.sum
 dist/
 
 design.md
+feature.md
 viking.toml
