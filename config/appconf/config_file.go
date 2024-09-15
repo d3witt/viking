@@ -26,13 +26,15 @@ func ParseConfig() (Config, error) {
 	return parseConfig(configFile)
 }
 
-func NewDefaultConfig() (Config, error) {
+func NewDefaultConfig(name string) (Config, error) {
 	currentDir, err := os.Getwd()
 	if err != nil {
 		return Config{}, err
 	}
 
-	name := path.Base(currentDir)
+	if name == "" {
+		name = path.Base(currentDir)
+	}
 	cfg := defaultConfig(name)
 	err = cfg.Save()
 

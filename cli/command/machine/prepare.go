@@ -99,6 +99,11 @@ func checkSwarm(ctx context.Context, vikingCli *command.Cli, clients []*ssh.Clie
 		}
 	}
 
+	managers, _, _, err = swarmStatus(ctx, dockerClients)
+	if err != nil {
+		return err
+	}
+
 	fmt.Fprintln(vikingCli.Out, "Checking Viking network...")
 	if err := checkVikingNetwork(ctx, managers[0]); err != nil {
 		return err
