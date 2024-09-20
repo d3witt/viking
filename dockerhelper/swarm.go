@@ -166,6 +166,35 @@ func DesiredManagersCount(total int) int {
 	}
 }
 
+func InitSwarm(ctx context.Context, clients []*Client) error {
+	if len(clients) == 0 {
+		return errors.New("no clients available to initialize the swarm")
+	}
+
+	leader := clients[0]
+	host, _, err := net.SplitHostPort(leader.SSH.RemoteAddr().String())
+	if err != nil {
+		return fmt.Errorf("failed to extract hostname for leader: %w", err)
+	}
+
+	_, err = leader.SwarmInit(ctx, swarm.InitRequest{
+		ListenAddr:    "0.0.0.0:2377",
+		AdvertiseAddr: host,
+		Spec: swarm.Spec{
+			Annotations: swarm.Annotations{
+				Labels: map[string]string{
+					SwarmLabel: "true",
+				},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to initialize swarm on leader %s: %w", host, err)
+	}
+
+	return JoinNodes(ctx, leader, clients[1:])
+}
+
 // JoinNodes adds multiple nodes to the swarm using the provided manager.
 // It handles promotion of workers to managers to maintain the desired number of managers.
 func JoinNodes(ctx context.Context, manager *Client, clients []*Client) error {
@@ -226,7 +255,7 @@ func JoinNodes(ctx context.Context, manager *Client, clients []*Client) error {
 
 // joinSwarmNode handles the actual swarm join operation for a single node.
 func joinSwarmNode(ctx context.Context, client *Client, managerAddr, joinToken string) error {
-	host, _, err := net.SplitHostPort(managerAddr)
+	host, _, err := net.SplitHostPort(client.SSH.RemoteAddr().String())
 	if err != nil {
 		return fmt.Errorf("invalid manager address %s: %w", managerAddr, err)
 	}
@@ -238,7 +267,7 @@ func joinSwarmNode(ctx context.Context, client *Client, managerAddr, joinToken s
 		RemoteAddrs:   []string{managerAddr},
 	}
 
-	slog.InfoContext(ctx, "Joining swarm", "machine", client.SSH.RemoteAddr().String(), "manager", managerAddr)
+	slog.InfoContext(ctx, "Joining swarm", "machine", host, "manager", managerAddr)
 	return client.SwarmJoin(ctx, joinRequest)
 }
 
