@@ -75,7 +75,7 @@ func runAdd(vikingCli *command.Cli, path, name, passphrase string) error {
 		return err
 	}
 
-	fmt.Fprintf(vikingCli.Out, "Key %s added.\n", name)
+	fmt.Fprintln(vikingCli.Out, name)
 
 	return nil
 }

@@ -35,12 +35,10 @@ func runPrepare(ctx context.Context, vikingCli *command.Cli) error {
 		}
 	}()
 
-	slog.InfoContext(ctx, "Checking if Docker is installed on all machines")
-	if err := checkDockerInstalled(ctx, clients); err != nil {
+	if err := checkDockerInstalled(ctx, vikingCli, clients); err != nil {
 		return err
 	}
 
-	slog.InfoContext(ctx, "Ensuring Docker Swarm is configured")
 	if err := ensureSwarm(ctx, vikingCli, clients); err != nil {
 		return err
 	}
@@ -49,11 +47,11 @@ func runPrepare(ctx context.Context, vikingCli *command.Cli) error {
 	return nil
 }
 
-func checkDockerInstalled(ctx context.Context, clients []*ssh.Client) error {
+func checkDockerInstalled(ctx context.Context, vikingCli *command.Cli, clients []*ssh.Client) error {
 	err := parallel.RunFirstErr(context.Background(), len(clients), func(i int) error {
 		client := clients[i]
 		if !dockerhelper.IsDockerInstalled(client) {
-			slog.InfoContext(ctx, "Installing Docker", "machine", client.RemoteAddr().String())
+			fmt.Fprintf(vikingCli.Out, "Docker is not installed on host %s. Installing...\n", client.RemoteAddr().String())
 			if err := dockerhelper.InstallDocker(client); err != nil {
 				slog.ErrorContext(ctx, "Failed to install Docker", "machine", client.RemoteAddr().String(), "error", err)
 				return fmt.Errorf("could not install Docker on host %s: %w", client.RemoteAddr().String(), err)
@@ -108,7 +106,6 @@ func ensureSwarm(ctx context.Context, vikingCli *command.Cli, sshClients []*ssh.
 		return errors.New("No managers available to configure the Viking network.")
 	}
 
-	fmt.Fprintln(vikingCli.Out, "Checking Viking network...")
 	return ensureVikingNetwork(ctx, status.Managers[0])
 }
 

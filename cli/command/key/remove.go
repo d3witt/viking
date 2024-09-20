@@ -25,7 +25,7 @@ func runRemove(vikingCli *command.Cli, name string) error {
 		return err
 	}
 
-	fmt.Fprintln(vikingCli.Out, "Key removed from this computer.")
+	fmt.Fprintln(vikingCli.Out, name)
 
 	return nil
 }

@@ -54,7 +54,7 @@ func runGenerate(vikingCli *command.Cli, name string) error {
 		return err
 	}
 
-	fmt.Fprintf(vikingCli.Out, "Key %s added.\n", name)
+	fmt.Fprintln(vikingCli.Out, name)
 
 	return nil
 }
