@@ -72,6 +72,7 @@ func ensureSwarm(ctx context.Context, vikingCli *command.Cli, sshClients []*ssh.
 	if err != nil {
 		return err
 	}
+	defer swarm.Close()
 
 	status, err := swarm.Status(ctx)
 	if err != nil {

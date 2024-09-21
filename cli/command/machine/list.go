@@ -3,7 +3,9 @@ package machine
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/config/appconf"
@@ -100,6 +102,10 @@ func printStatusTable(vikingCli *command.Cli, statuses []machineStatus) {
 	data := [][]string{
 		{"IP", "Port", "Key", "Reachable", "Docker", "Swarm Status", "Role"},
 	}
+
+	slices.SortFunc(statuses, func(a, b machineStatus) int {
+		return strings.Compare(a.IP, b.IP)
+	})
 
 	for _, status := range statuses {
 		data = append(data, []string{

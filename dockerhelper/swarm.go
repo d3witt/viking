@@ -334,11 +334,13 @@ func (s *Swarm) joinNodesWithManager(ctx context.Context, manager *Client, clien
 
 	managerAddr := net.JoinHostPort(info.Swarm.NodeAddr, "2377")
 
-	parallel.ForEach(ctx, len(clients), func(i int) {
-		if err := joinSwarmNode(ctx, clients[i], managerAddr, sw.JoinTokens.Worker); err != nil {
-			slog.ErrorContext(ctx, "Could not join node to swarm", "node", clients[i].SSH.RemoteAddr(), "error", err)
+	// If run in parallel, the manager node will be promoted to manager before the worker nodes are joined.
+	// This will cause the worker nodes to fail to join the swarm.
+	for _, client := range clients {
+		if err := joinSwarmNode(ctx, client, managerAddr, sw.JoinTokens.Worker); err != nil {
+			slog.ErrorContext(ctx, "Could not join node to swarm", "node", client.SSH.RemoteAddr(), "error", err)
 		}
-	})
+	}
 
 	info, err = manager.Info(ctx)
 	if err != nil {
