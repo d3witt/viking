@@ -2,30 +2,40 @@ package command
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 
 	"github.com/d3witt/viking/dockerhelper"
 )
 
-func (c *Cli) DialManagerNode(ctx context.Context) (cl *dockerhelper.Client, err error) {
-	clients, err := c.DialMachines()
+func (c *Cli) DialSwarm(ctx context.Context) (sw *dockerhelper.Swarm, err error) {
+	clients, err := c.DialMachines(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		for _, client := range clients {
-			if cl == nil || cl.SSH != client {
-				client.Close()
-			}
-		}
-	}()
 
 	dockerClients := make([]*dockerhelper.Client, 0, len(clients))
 	for _, sshClient := range clients {
-		dockerClient, _ := dockerhelper.DialSSH(sshClient)
-		// TODO: log error if verbose mode
+		dockerClient, err := dockerhelper.DialSSH(sshClient)
+		if err != nil {
+			slog.WarnContext(ctx, "Error dialing docker client", "err", err)
+		}
 
 		dockerClients = append(dockerClients, dockerClient)
 	}
 
-	return dockerhelper.ManagerNode(ctx, dockerClients)
+	if len(dockerClients) == 0 {
+		return nil, fmt.Errorf("no docker clients available")
+	}
+
+	return dockerhelper.NewSwarm(dockerClients), nil
+}
+
+func (c *Cli) DialNode(ctx context.Context, machine string) (cl *dockerhelper.Client, err error) {
+	clients, err := c.DialMachine(machine)
+	if err != nil {
+		return nil, err
+	}
+
+	return dockerhelper.DialSSH(clients)
 }

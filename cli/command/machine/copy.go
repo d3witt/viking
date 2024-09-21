@@ -2,6 +2,7 @@ package machine
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -27,12 +28,12 @@ func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 			if args.Len() != 2 {
 				return cli.ShowCommandHelp(ctx, "copy")
 			}
-			return runCopy(vikingCli, args.Get(0), args.Get(1))
+			return runCopy(ctx.Context, vikingCli, args.Get(0), args.Get(1))
 		},
 	}
 }
 
-func runCopy(vikingCli *command.Cli, from, to string) error {
+func runCopy(ctx context.Context, vikingCli *command.Cli, from, to string) error {
 	fromMachine, fromPath := parseMachinePath(from)
 	toMachine, toPath := parseMachinePath(to)
 
@@ -44,7 +45,7 @@ func runCopy(vikingCli *command.Cli, from, to string) error {
 		return fmt.Errorf("cannot copy between two remote machines")
 	}
 
-	clients, err := dialCopyMachines(vikingCli, fromMachine, toMachine)
+	clients, err := dialCopyMachines(ctx, vikingCli, fromMachine, toMachine)
 	if err != nil {
 		return err
 	}
@@ -60,10 +61,10 @@ func runCopy(vikingCli *command.Cli, from, to string) error {
 	return copyToRemote(vikingCli, fromPath, toPath, clients...)
 }
 
-func dialCopyMachines(vikingCli *command.Cli, fromMachine, toMachine string) ([]*ssh.Client, error) {
+func dialCopyMachines(ctx context.Context, vikingCli *command.Cli, fromMachine, toMachine string) ([]*ssh.Client, error) {
 	machine := fromMachine + toMachine
 	if strings.EqualFold(machine, "remote") {
-		return vikingCli.DialMachines()
+		return vikingCli.DialMachines(ctx)
 	} else {
 		client, err := vikingCli.DialMachine(machine)
 		if err != nil {

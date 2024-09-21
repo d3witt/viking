@@ -16,8 +16,9 @@ import (
 
 func NewPrepareCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
-		Name:  "prepare",
-		Usage: "Install Docker, set up Docker Swarm or join new machiens to the Swarm",
+		Name:        "prepare",
+		Usage:       "Install Docker, set up Docker Swarm or join new machiens to the Swarm",
+		Description: "This command will install Docker on all available machines, set up a Docker Swarm if it does not exist, or join new machines to the Swarm.",
 		Action: func(ctx *cli.Context) error {
 			return runPrepare(ctx.Context, vikingCli)
 		},
@@ -25,7 +26,7 @@ func NewPrepareCmd(vikingCli *command.Cli) *cli.Command {
 }
 
 func runPrepare(ctx context.Context, vikingCli *command.Cli) error {
-	clients, err := vikingCli.DialMachines()
+	clients, err := vikingCli.DialMachines(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to dial machines: %w", err)
 	}
@@ -43,7 +44,7 @@ func runPrepare(ctx context.Context, vikingCli *command.Cli) error {
 		return err
 	}
 
-	slog.InfoContext(ctx, "Machines are ready")
+	fmt.Fprintln(vikingCli.Out, "Machines are ready to use.")
 	return nil
 }
 
@@ -67,13 +68,12 @@ func checkDockerInstalled(ctx context.Context, vikingCli *command.Cli, clients [
 }
 
 func ensureSwarm(ctx context.Context, vikingCli *command.Cli, sshClients []*ssh.Client) error {
-	dockerClients, err := createDockerClients(ctx, vikingCli, sshClients)
+	swarm, err := dockerhelper.DialSwarmSSH(ctx, sshClients)
 	if err != nil {
 		return err
 	}
-	defer closeDockerClients(dockerClients)
 
-	status, err := dockerhelper.SwarmStatus(ctx, dockerClients)
+	status, err := swarm.Status(ctx)
 	if err != nil {
 		return err
 	}
@@ -84,20 +84,20 @@ func ensureSwarm(ctx context.Context, vikingCli *command.Cli, sshClients []*ssh.
 
 	if len(status.Managers) == 0 && len(status.Workers) == 0 {
 		fmt.Fprintln(vikingCli.Out, "No existing swarm found. Initializing new swarm...")
-		if err := dockerhelper.InitSwarm(ctx, dockerClients); err != nil {
+		if err := swarm.Init(ctx); err != nil {
 			return err
 		}
 	} else {
 		if len(status.Missing) > 0 {
 			fmt.Fprintln(vikingCli.Out, "Joining missing nodes to the swarm...")
 
-			if err := dockerhelper.JoinNodes(ctx, status.Managers[0], status.Missing); err != nil {
+			if err := swarm.JoinNodes(ctx, status.Missing); err != nil {
 				return err
 			}
 		}
 	}
 
-	status, err = dockerhelper.SwarmStatus(ctx, dockerClients)
+	status, err = swarm.Status(ctx)
 	if err != nil {
 		return err
 	}
@@ -107,25 +107,6 @@ func ensureSwarm(ctx context.Context, vikingCli *command.Cli, sshClients []*ssh.
 	}
 
 	return ensureVikingNetwork(ctx, status.Managers[0])
-}
-
-func createDockerClients(ctx context.Context, vikingCli *command.Cli, sshClients []*ssh.Client) ([]*dockerhelper.Client, error) {
-	dockerClients := make([]*dockerhelper.Client, len(sshClients))
-
-	err := parallel.RunFirstErr(ctx, len(sshClients), func(i int) error {
-		dockerClient, err := dockerhelper.DialSSH(sshClients[i])
-		if err != nil {
-			return fmt.Errorf("%s: could not dial Docker: %w", sshClients[i].RemoteAddr().String(), err)
-		}
-		dockerClients[i] = dockerClient
-		return nil
-	})
-	if err != nil {
-		fmt.Fprintln(vikingCli.Err, err)
-		return nil, errors.New("failed to dial Docker on all machines")
-	}
-
-	return dockerClients, nil
 }
 
 func ensureVikingNetwork(ctx context.Context, client *dockerhelper.Client) error {

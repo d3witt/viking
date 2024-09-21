@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -28,17 +29,17 @@ func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 			},
 		},
 		Action: func(ctx *cli.Context) error {
-			return runExecute(vikingCli, ctx)
+			machine := ctx.String("machine")
+			cmd := strings.Join(ctx.Args().Slice(), " ")
+			tty := ctx.Bool("tty")
+
+			return runExecute(ctx.Context, vikingCli, machine, cmd, tty)
 		},
 	}
 }
 
-func runExecute(vikingCli *command.Cli, ctx *cli.Context) error {
-	machine := ctx.String("machine")
-	cmd := strings.Join(ctx.Args().Slice(), " ")
-	tty := ctx.Bool("tty")
-
-	clients, err := getExecClients(vikingCli, machine)
+func runExecute(ctx context.Context, vikingCli *command.Cli, machine, cmd string, tty bool) error {
+	clients, err := getExecClients(ctx, vikingCli, machine)
 	if err != nil {
 		return err
 	}
@@ -55,9 +56,9 @@ func runExecute(vikingCli *command.Cli, ctx *cli.Context) error {
 	return executeSequential(vikingCli, clients, cmd)
 }
 
-func getExecClients(vikingCli *command.Cli, machine string) ([]*ssh.Client, error) {
+func getExecClients(ctx context.Context, vikingCli *command.Cli, machine string) ([]*ssh.Client, error) {
 	if machine == "" {
-		return vikingCli.DialMachines()
+		return vikingCli.DialMachines(ctx)
 	}
 	client, err := vikingCli.DialMachine(machine)
 	if err != nil {

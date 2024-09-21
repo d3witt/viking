@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/d3witt/viking/sshexec"
@@ -62,6 +63,40 @@ func (c *cmdConn) SetWriteDeadline(t time.Time) error {
 type Client struct {
 	*client.Client
 	SSH *ssh.Client
+
+	closed bool
+	mu     sync.Mutex
+}
+
+func (c *Client) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil
+	}
+
+	var errs []error
+
+	if c.Client != nil {
+		if err := c.Client.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if c.SSH != nil {
+		if err := c.SSH.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	c.closed = true
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors closing client: %v", errs)
+	}
+
+	return nil
 }
 
 func DialSSH(c *ssh.Client) (*Client, error) {

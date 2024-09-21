@@ -11,7 +11,6 @@ import (
 	"github.com/d3witt/viking/cli/command/cfg"
 	"github.com/d3witt/viking/cli/command/key"
 	"github.com/d3witt/viking/cli/command/machine"
-	"github.com/d3witt/viking/cli/command/service"
 	"github.com/d3witt/viking/config/userconf"
 	"github.com/d3witt/viking/streams"
 	"github.com/urfave/cli/v2"
@@ -48,11 +47,6 @@ func main() {
 			machine.NewExecuteCmd(vikingCli),
 			machine.NewCopyCmd(vikingCli),
 			machine.NewPrepareCmd(vikingCli),
-
-			service.NewRunCmd(vikingCli),
-			service.NewListCommand(vikingCli),
-			service.NewRemoveCommand(vikingCli),
-			service.NewLogsCommand(vikingCli),
 
 			// Other commands
 			key.NewCmd(vikingCli),
