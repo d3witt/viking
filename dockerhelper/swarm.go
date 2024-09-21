@@ -157,21 +157,6 @@ func (s *Swarm) RemoveNodesByAddr(ctx context.Context, addr string, force bool) 
 			if err := manager.NodeRemove(ctx, node.ID, types.NodeRemoveOptions{Force: force}); err != nil {
 				slog.ErrorContext(ctx, "Failed to remove node", "node", node.ID, "error", err)
 			}
-
-			WaitFor(ctx, s.Timeout, s.Interval, func(ctx context.Context) (bool, error) {
-				nodes, err := manager.NodeList(ctx, types.NodeListOptions{})
-				if err != nil {
-					return false, err
-				}
-
-				for _, n := range nodes {
-					if n.ID == node.ID {
-						return false, nil
-					}
-				}
-
-				return true, nil
-			})
 		}
 	}
 
@@ -214,7 +199,6 @@ func (s *Swarm) LeaveNode(ctx context.Context, node *Client, force bool) error {
 			return fmt.Errorf("cannot remove the last manager node in a single-node swarm, please add more nodes before removing this one")
 		}
 
-		// Adjust currentManagers to account for the node being removed
 		currentManagers--
 
 		for _, n := range nodes {
@@ -241,10 +225,8 @@ func (s *Swarm) LeaveNode(ctx context.Context, node *Client, force bool) error {
 			}
 		}
 
-		if info.Swarm.ControlAvailable {
-			if err := s.demoteNode(ctx, manager, info.Swarm.NodeID); err != nil {
-				return fmt.Errorf("demote node %s: %w", node.SSH.RemoteAddr(), err)
-			}
+		if err := s.demoteNode(ctx, manager, info.Swarm.NodeID); err != nil {
+			return fmt.Errorf("demote node %s: %w", node.SSH.RemoteAddr(), err)
 		}
 	}
 
@@ -389,7 +371,7 @@ func (s *Swarm) promoteNode(ctx context.Context, manager *Client, nodeID string)
 		return fmt.Errorf("failed to update node %s: %w", nodeID, err)
 	}
 
-	WaitFor(ctx, s.Timeout, s.Interval, func(context.Context) (bool, error) {
+	return WaitFor(ctx, s.Timeout, s.Interval, func(context.Context) (bool, error) {
 		updatedNode, _, err := manager.NodeInspectWithRaw(ctx, nodeID)
 		if err != nil {
 			return false, err
@@ -397,8 +379,6 @@ func (s *Swarm) promoteNode(ctx context.Context, manager *Client, nodeID string)
 
 		return updatedNode.Spec.Role == swarm.NodeRoleManager && updatedNode.Status.State == swarm.NodeStateReady, nil
 	})
-
-	return nil
 }
 
 func (s *Swarm) demoteNode(ctx context.Context, manager *Client, nodeID string) error {
@@ -415,7 +395,7 @@ func (s *Swarm) demoteNode(ctx context.Context, manager *Client, nodeID string) 
 		return fmt.Errorf("failed to update node %s: %w", nodeID, err)
 	}
 
-	WaitFor(ctx, s.Timeout, s.Interval, func(context.Context) (bool, error) {
+	return WaitFor(ctx, s.Timeout, s.Interval, func(context.Context) (bool, error) {
 		updatedNode, _, err := manager.NodeInspectWithRaw(ctx, nodeID)
 		if err != nil {
 			return false, err
@@ -423,8 +403,6 @@ func (s *Swarm) demoteNode(ctx context.Context, manager *Client, nodeID string) 
 
 		return updatedNode.Spec.Role == swarm.NodeRoleWorker && updatedNode.Status.State == swarm.NodeStateReady, nil
 	})
-
-	return nil
 }
 
 func activeNodes(ctx context.Context, manager *Client) ([]swarm.Node, error) {
