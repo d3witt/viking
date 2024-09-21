@@ -10,13 +10,12 @@ func NewCmd(vikingCli *command.Cli) *cli.Command {
 		Name:  "machine",
 		Usage: "Manage your machines",
 		Subcommands: []*cli.Command{
-			NewAddCmd(vikingCli),
 			NewListCmd(vikingCli),
+			NewAddCmd(vikingCli),
 			NewRmCmd(vikingCli),
 			NewExecuteCmd(vikingCli),
 			NewCopyCmd(vikingCli),
 			NewPrepareCmd(vikingCli),
-			NewStatusCmd(vikingCli),
 		},
 	}
 }
