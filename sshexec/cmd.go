@@ -17,15 +17,10 @@ type PtyOptions struct {
 }
 
 type ExitError struct {
-	Content string
-	Status  int
+	Status int
 }
 
 func (e ExitError) Error() string {
-	if e.Content != "" {
-		return e.Content
-	}
-
 	return fmt.Sprintf("exited with status %v", e.Status)
 }
 
@@ -122,8 +117,7 @@ func (c *Cmd) Wait() error {
 	if err := c.session.Wait(); err != nil {
 		if exitErr, ok := err.(*ssh.ExitError); ok {
 			return &ExitError{
-				Status:  exitErr.ExitStatus(),
-				Content: exitErr.String(),
+				Status: exitErr.ExitStatus(),
 			}
 		}
 
@@ -151,21 +145,10 @@ func (c *Cmd) Exit() error {
 }
 
 func (c *Cmd) Run() error {
-	var b bytes.Buffer
-
-	if c.Stderr == nil {
-		c.Stderr = &b
-	}
-
 	if err := c.Start(); err != nil {
 		return err
 	}
-
-	if err := c.Wait(); err != nil {
-		return fmt.Errorf("%w.\n%s", err, b.String())
-	}
-
-	return nil
+	return c.Wait()
 }
 
 func (c *Cmd) Output() (string, error) {
@@ -173,10 +156,15 @@ func (c *Cmd) Output() (string, error) {
 		return "", errors.New("stdout already set")
 	}
 
-	var b bytes.Buffer
-	c.Stdout = &b
+	var stdoutBuf bytes.Buffer
+	c.Stdout = &stdoutBuf
+
+	if c.Stderr == nil {
+		c.Stderr = io.Discard
+	}
+
 	err := c.Run()
-	return b.String(), err
+	return stdoutBuf.String(), err
 }
 
 type singleWriter struct {
@@ -198,12 +186,12 @@ func (c *Cmd) CombinedOutput() (string, error) {
 		return "", errors.New("stderr already set")
 	}
 
-	var b singleWriter
-	c.Stdout = &b
-	c.Stderr = &b
-	err := c.Run()
+	var combinedBuf singleWriter
+	c.Stdout = &combinedBuf
+	c.Stderr = &combinedBuf
 
-	return b.b.String(), err
+	err := c.Run()
+	return combinedBuf.b.String(), err
 }
 
 func (c *Cmd) StdinPipe() (io.WriteCloser, error) {

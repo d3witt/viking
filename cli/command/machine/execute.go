@@ -14,7 +14,7 @@ import (
 func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "exec",
-		Usage:     "Execute shell command on machine(s)",
+		Usage:     "Execute command on machine(s)",
 		ArgsUsage: "CMD ARGS...",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -68,16 +68,22 @@ func getExecClients(ctx context.Context, vikingCli *command.Cli, machine string)
 }
 
 func executeSequential(vikingCli *command.Cli, clients []*ssh.Client, cmd string) error {
+	multi := len(clients) > 1
+
 	for i, client := range clients {
-		if len(clients) > 1 {
-			fmt.Fprintln(vikingCli.Out, client.RemoteAddr())
+		addr := client.RemoteAddr().String()
+		prefix := ""
+		if multi {
+			prefix = fmt.Sprintf("%s: ", addr)
 		}
+
+		fmt.Fprintf(vikingCli.Out, "%sExecuting command: %s\n", prefix, cmd)
 
 		if err := executeCmd(vikingCli, client, cmd); err != nil {
-			fmt.Fprintf(vikingCli.Err, "Error: %v", err)
+			fmt.Fprintf(vikingCli.Err, "%sError: %v\n", prefix, err)
 		}
 
-		if i < len(clients)-1 {
+		if multi && i < len(clients)-1 {
 			fmt.Fprintln(vikingCli.Out)
 		}
 	}
