@@ -17,7 +17,7 @@ import (
 func NewPrepareCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:        "prepare",
-		Usage:       "Install Docker, set up Docker Swarm or join new machiens to the Swarm",
+		Usage:       "Prepare machines by installing Docker and configuring Docker Swarm",
 		Description: "This command will install Docker on all available machines, set up a Docker Swarm if it does not exist, or join new machines to the Swarm.",
 		Action: func(ctx *cli.Context) error {
 			return runPrepare(ctx.Context, vikingCli)

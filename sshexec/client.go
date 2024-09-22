@@ -31,7 +31,7 @@ func SSHClient(host string, port int, user, private, passphrase string) (*ssh.Cl
 			sshAuth,
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         time.Second * 5,
+		Timeout:         time.Second * 30,
 	}
 
 	addr := net.JoinHostPort(host, strconv.Itoa(port))

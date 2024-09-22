@@ -23,12 +23,16 @@ func (c *Cli) DialMachines(ctx context.Context) ([]*ssh.Client, error) {
 
 	machines := conf.ListMachines()
 
+	if len(machines) == 0 {
+		return []*ssh.Client{}, nil
+	}
+
 	var clients []*ssh.Client
 	var mu sync.Mutex
 
 	parallel.ForEach(ctx, len(machines), func(i int) {
 		m := machines[i]
-		private, passphrase, err := c.getSSHKeyDetails(m.Key)
+		private, passphrase, err := c.GetSSHKeyDetails(m.Key)
 		if err != nil {
 			fmt.Fprint(c.Out, err.Error())
 			return
@@ -63,7 +67,7 @@ func (c *Cli) DialMachine(machine string) (*ssh.Client, error) {
 		return nil, err
 	}
 
-	private, passphrase, err := c.getSSHKeyDetails(m.Key)
+	private, passphrase, err := c.GetSSHKeyDetails(m.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +75,7 @@ func (c *Cli) DialMachine(machine string) (*ssh.Client, error) {
 	return sshexec.SSHClient(m.IP.String(), m.Port, m.User, private, passphrase)
 }
 
-func (c *Cli) getSSHKeyDetails(key string) (private, passphrase string, err error) {
+func (c *Cli) GetSSHKeyDetails(key string) (private, passphrase string, err error) {
 	if key == "" {
 		return "", "", nil
 	}

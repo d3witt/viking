@@ -14,6 +14,10 @@ func (c *Cli) DialSwarm(ctx context.Context) (sw *dockerhelper.Swarm, err error)
 		return nil, err
 	}
 
+	if len(clients) == 0 {
+		return dockerhelper.NewSwarm([]*dockerhelper.Client{}), nil
+	}
+
 	dockerClients := make([]*dockerhelper.Client, 0, len(clients))
 	for _, sshClient := range clients {
 		dockerClient, err := dockerhelper.DialSSH(sshClient)

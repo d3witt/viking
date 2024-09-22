@@ -14,7 +14,8 @@ import (
 func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "exec",
-		Usage:     "Execute command on machine(s)",
+		Aliases:   []string{"run"},
+		Usage:     "Execute command on machines",
 		ArgsUsage: "CMD ARGS...",
 		Flags: []cli.Flag{
 			&cli.StringFlag{

@@ -7,27 +7,25 @@ import (
 	"log/slog"
 	"net"
 	"slices"
-	"time"
 
 	"github.com/d3witt/viking/parallel"
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/swarm"
+	"github.com/docker/docker/api/types/system"
 	"golang.org/x/crypto/ssh"
 )
 
 var ErrNoManagerFound = errors.New("no manager node found or available")
 
 type Swarm struct {
-	Clients  []*Client
-	Timeout  time.Duration
-	Interval time.Duration
+	Clients []*Client
 }
 
 func NewSwarm(clients []*Client) *Swarm {
 	return &Swarm{
-		Clients:  clients,
-		Timeout:  2 * time.Minute,
-		Interval: 1 * time.Second,
+		Clients: clients,
 	}
 }
 
@@ -70,6 +68,24 @@ func (s *Swarm) GetClientByAddr(ip string) *Client {
 	}
 
 	return nil
+}
+
+func (s *Swarm) Exists(ctx context.Context) bool {
+	slog.InfoContext(ctx, "Checking if swarm exists")
+
+	for _, cl := range s.Clients {
+		info, err := cl.Info(ctx)
+		if err != nil {
+			slog.WarnContext(ctx, "Failed to get info", "addr", cl.SSH.RemoteAddr(), "err", err)
+			continue
+		}
+
+		if info.Swarm.LocalNodeState != swarm.LocalNodeStateInactive {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Returns the swarm status or an error if multiple clusters are detected or other issues arise.
@@ -121,6 +137,7 @@ func (s *Swarm) Init(ctx context.Context) error {
 		return fmt.Errorf("failed to extract hostname for leader: %w", err)
 	}
 
+	slog.InfoContext(ctx, "Initializing swarm", "leader", host)
 	_, err = leader.SwarmInit(ctx, swarm.InitRequest{
 		ListenAddr:    "0.0.0.0:2377",
 		AdvertiseAddr: host,
@@ -139,12 +156,7 @@ func (s *Swarm) Init(ctx context.Context) error {
 	return s.joinNodesWithManager(ctx, leader, s.Clients[1:])
 }
 
-func (s *Swarm) RemoveNodesByAddr(ctx context.Context, addr string, force bool) error {
-	manager := s.manager(ctx, []string{})
-	if manager == nil {
-		return ErrNoManagerFound
-	}
-
+func (s *Swarm) removeNodesByAddr(ctx context.Context, manager *Client, addr string, force bool) error {
 	nodes, err := manager.NodeList(ctx, types.NodeListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list nodes: %w", err)
@@ -163,92 +175,58 @@ func (s *Swarm) RemoveNodesByAddr(ctx context.Context, addr string, force bool) 
 	return nil
 }
 
-// LeaveNode removes a node from the swarm gracefully.
-// If the node is a manager, it ensures that the swarm maintains the desired number of managers.
+// LeaveNode removes a node from the swarm.
+// If the node is a worker, it simply leaves the swarm.
+// If the node is a manager, it adjusts the swarm to maintain the desired number of managers.
+// If no manager is available, it tries to make the node leave the swarm.
 func (s *Swarm) LeaveNode(ctx context.Context, node *Client, force bool) error {
 	slog.InfoContext(ctx, "Leaving swarm", "node", node.SSH.RemoteAddr())
 
 	info, err := node.Info(ctx)
 	if err != nil {
-		return fmt.Errorf("get node info: %w", err)
-	}
-
-	manager := s.manager(ctx, []string{info.Swarm.NodeID})
-	if manager == nil {
-		return ErrNoManagerFound
-	}
-	managerInfo, err := manager.Info(ctx)
-	if err != nil {
-		return fmt.Errorf("get manager info: %w", err)
+		return fmt.Errorf("failed to get node info: %w", err)
 	}
 
 	if info.Swarm.LocalNodeState == swarm.LocalNodeStateInactive {
 		return nil
 	}
 
-	if info.Swarm.ControlAvailable {
-		nodes, err := activeNodes(ctx, manager)
-		if err != nil {
-			return fmt.Errorf("failed to list active nodes: %w", err)
+	manager := s.findManager(ctx, nil)
+
+	if info.Swarm.ControlAvailable && manager != nil {
+		if err := s.adjustManagerCount(ctx, manager, info); err != nil {
+			return err
 		}
 
-		desiredManagers := desiredManagersCount(len(nodes) - 1)
-		currentManagers := managerInfo.Swarm.Managers
-
-		if currentManagers == 1 && len(nodes)-1 < 3 {
-			return fmt.Errorf("cannot remove the last manager node in a single-node swarm, please add more nodes before removing this one")
-		}
-
-		currentManagers--
-
-		for _, n := range nodes {
-			if n.ID == managerInfo.Swarm.NodeID || n.ID == info.Swarm.NodeID {
-				continue
-			}
-
-			if currentManagers < desiredManagers && n.Spec.Role == swarm.NodeRoleWorker {
-				if err := s.promoteNode(ctx, manager, n.ID); err != nil {
-					slog.ErrorContext(ctx, "Failed to promote node to manager. Continue with next node", "node", n.ID, "error", err)
-				} else {
-					currentManagers++
-				}
-			} else if currentManagers > desiredManagers && n.Spec.Role == swarm.NodeRoleManager {
-				if err := s.demoteNode(ctx, manager, n.ID); err != nil {
-					slog.ErrorContext(ctx, "Failed to demote node to worker. Continue with next node", "node", n.ID, "error", err)
-				} else {
-					currentManagers--
-				}
-			}
-
-			if currentManagers == desiredManagers {
-				break
-			}
+		manager = s.findManager(ctx, []string{info.Swarm.NodeID})
+		if manager == nil {
+			return ErrNoManagerFound
 		}
 
 		if err := s.demoteNode(ctx, manager, info.Swarm.NodeID); err != nil {
-			return fmt.Errorf("demote node %s: %w", node.SSH.RemoteAddr(), err)
+			return fmt.Errorf("failed to demote node %s: %w", node.SSH.RemoteAddr(), err)
 		}
 	}
 
-	slog.InfoContext(ctx, "Leaving swarm", "node", node.SSH.RemoteAddr())
 	if err := node.SwarmLeave(ctx, force); err != nil {
-		return err
+		return fmt.Errorf("failed to leave swarm: %w", err)
 	}
 
-	return WaitFor(ctx, s.Timeout, s.Interval, func(ctx context.Context) (bool, error) {
-		nodes, err := manager.NodeList(ctx, types.NodeListOptions{})
-		if err != nil {
-			return false, err
+	if manager != nil {
+		slog.InfoContext(ctx, "Waiting for node to be down", "node", info.Swarm.NodeID)
+		condition := func(node swarm.Node) bool {
+			return node.Status.State == swarm.NodeStateDown
+		}
+		if err := s.waitForNodeCondition(ctx, manager, info.Swarm.NodeID, condition); err != nil {
+			return fmt.Errorf("failed to wait for node to be down: %w", err)
 		}
 
-		for _, node := range nodes {
-			if node.ID == info.Swarm.NodeID {
-				return node.Status.State == swarm.NodeStateDown, nil
-			}
+		if err := s.removeNodesByAddr(ctx, manager, info.Swarm.NodeAddr, force); err != nil {
+			return err
 		}
+	}
 
-		return true, nil
-	})
+	return nil
 }
 
 // LeaveSwarm removes multiple nodes from the swarm concurrently.
@@ -274,7 +252,7 @@ func (s *Swarm) LeaveSwarm(ctx context.Context) {
 }
 
 func (s *Swarm) JoinNodes(ctx context.Context, clients []*Client) error {
-	manager := s.manager(ctx, nil)
+	manager := s.findManager(ctx, nil)
 	if manager == nil {
 		return ErrNoManagerFound
 	}
@@ -283,8 +261,7 @@ func (s *Swarm) JoinNodes(ctx context.Context, clients []*Client) error {
 }
 
 // ManagerNode returns a manager node or nil if none are found.
-func (s *Swarm) manager(ctx context.Context, excludeNodeIds []string) *Client {
-	slog.Info("Finding manager node")
+func (s *Swarm) findManager(ctx context.Context, excludeNodeIds []string) *Client {
 	for _, cl := range s.Clients {
 		info, err := cl.Info(ctx)
 		if err != nil {
@@ -295,6 +272,51 @@ func (s *Swarm) manager(ctx context.Context, excludeNodeIds []string) *Client {
 			return cl
 		}
 	}
+	return nil
+}
+
+func (s *Swarm) adjustManagerCount(ctx context.Context, manager *Client, nodeToRemove system.Info) error {
+	nodes, err := activeNodes(ctx, manager)
+	if err != nil {
+		return fmt.Errorf("failed to list active nodes: %w", err)
+	}
+
+	desiredManagers := desiredManagersCount(len(nodes) - 1)
+	managerInfo, err := manager.Info(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get manager info: %w", err)
+	}
+	currentManagers := managerInfo.Swarm.Managers - 1 // Subtract the node being removed
+
+	if managerInfo.Swarm.Managers == 1 && managerInfo.Swarm.Nodes < 3 {
+		return errors.New("not enough nodes to remove manager, please add more nodes to the swarm or run `viking machine rm` to remove the swarm")
+	}
+
+	for _, n := range nodes {
+		if n.ID == managerInfo.Swarm.NodeID || n.ID == nodeToRemove.Swarm.NodeID {
+			continue
+		}
+
+		switch {
+		case currentManagers < desiredManagers && n.Spec.Role == swarm.NodeRoleWorker:
+			if err := s.promoteNode(ctx, manager, n.ID); err != nil {
+				slog.ErrorContext(ctx, "Failed to promote node to manager", "node", n.ID, "error", err)
+			} else {
+				currentManagers++
+			}
+		case currentManagers > desiredManagers && n.Spec.Role == swarm.NodeRoleManager:
+			if err := s.demoteNode(ctx, manager, n.ID); err != nil {
+				slog.ErrorContext(ctx, "Failed to demote node to worker", "node", n.ID, "error", err)
+			} else {
+				currentManagers--
+			}
+		}
+
+		if currentManagers == desiredManagers {
+			break
+		}
+	}
+
 	return nil
 }
 
@@ -371,14 +393,12 @@ func (s *Swarm) promoteNode(ctx context.Context, manager *Client, nodeID string)
 		return fmt.Errorf("failed to update node %s: %w", nodeID, err)
 	}
 
-	return WaitFor(ctx, s.Timeout, s.Interval, func(context.Context) (bool, error) {
-		updatedNode, _, err := manager.NodeInspectWithRaw(ctx, nodeID)
-		if err != nil {
-			return false, err
-		}
-
-		return updatedNode.Spec.Role == swarm.NodeRoleManager && updatedNode.Status.State == swarm.NodeStateReady, nil
-	})
+	slog.InfoContext(ctx, "Waiting for node to become a manager", "node", nodeID)
+	condition := func(node swarm.Node) bool {
+		return node.Spec.Role == swarm.NodeRoleManager && node.Status.State == swarm.NodeStateReady &&
+			node.ManagerStatus != nil && node.ManagerStatus.Reachability == swarm.ReachabilityReachable
+	}
+	return s.waitForNodeCondition(ctx, manager, nodeID, condition)
 }
 
 func (s *Swarm) demoteNode(ctx context.Context, manager *Client, nodeID string) error {
@@ -395,14 +415,11 @@ func (s *Swarm) demoteNode(ctx context.Context, manager *Client, nodeID string) 
 		return fmt.Errorf("failed to update node %s: %w", nodeID, err)
 	}
 
-	return WaitFor(ctx, s.Timeout, s.Interval, func(context.Context) (bool, error) {
-		updatedNode, _, err := manager.NodeInspectWithRaw(ctx, nodeID)
-		if err != nil {
-			return false, err
-		}
-
-		return updatedNode.Spec.Role == swarm.NodeRoleWorker && updatedNode.Status.State == swarm.NodeStateReady, nil
-	})
+	slog.InfoContext(ctx, "Waiting for node to be demoted", "id", nodeID)
+	condition := func(node swarm.Node) bool {
+		return node.Spec.Role == swarm.NodeRoleWorker && node.Status.State == swarm.NodeStateReady && node.ManagerStatus == nil
+	}
+	return s.waitForNodeCondition(ctx, manager, nodeID, condition)
 }
 
 func activeNodes(ctx context.Context, manager *Client) ([]swarm.Node, error) {
@@ -456,4 +473,47 @@ func joinSwarmNode(ctx context.Context, client *Client, managerAddr, joinToken s
 
 	slog.InfoContext(ctx, "Joining swarm", "machine", host, "manager", managerAddr)
 	return client.SwarmJoin(ctx, joinRequest)
+}
+
+// waitForNodeCondition listens for node events and waits until the provided condition is met.
+func (s *Swarm) waitForNodeCondition(ctx context.Context, manager *Client, nodeID string, condition func(node swarm.Node) bool) error {
+	// Check if the condition is already met before listening for events
+	node, _, err := manager.NodeInspectWithRaw(ctx, nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect node %s: %w", nodeID, err)
+	}
+	if condition(node) {
+		return nil
+	}
+
+	// Set up event filtering for the specific node
+	eventFilters := filters.NewArgs()
+	eventFilters.Add("type", "node")
+	eventFilters.Add("id", nodeID)
+	options := events.ListOptions{
+		Filters: eventFilters,
+	}
+
+	// Start listening for events
+	eventsCh, errorsCh := manager.Events(ctx, options)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context canceled while waiting for node condition")
+		case err := <-errorsCh:
+			return fmt.Errorf("error while receiving events: %w", err)
+		case event := <-eventsCh:
+			if event.Action == "update" {
+				// Re-inspect the node to check if the condition is now met
+				node, _, err := manager.NodeInspectWithRaw(ctx, nodeID)
+				if err != nil {
+					return fmt.Errorf("failed to inspect node %s: %w", nodeID, err)
+				}
+				if condition(node) {
+					return nil
+				}
+			}
+		}
+	}
 }
