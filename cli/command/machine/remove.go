@@ -62,17 +62,15 @@ func runRemove(ctx context.Context, vikingCli *command.Cli, machines []string, c
 		}
 	}
 
-	all := len(machines) == 0
-	if !all {
+	if len(machines) > 0 {
 		for _, machine := range machines {
 			if _, err := conf.GetMachine(machine); err != nil {
 				return fmt.Errorf("get machine %s: %v", machine, err)
 			}
 		}
-
-		all = len(machines) == len(conf.Machines)
 	}
 
+	all := len(machines) == 0 || len(machines) == len(conf.Machines)
 	if all {
 		return removeAllMachines(ctx, vikingCli, configOnly)
 	}
