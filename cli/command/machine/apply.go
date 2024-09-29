@@ -10,7 +10,6 @@ import (
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/dockerhelper"
 	"github.com/d3witt/viking/parallel"
-	"github.com/docker/docker/api/types/network"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/crypto/ssh"
 )
@@ -88,8 +87,13 @@ func runApply(ctx context.Context, vikingCli *command.Cli, yes bool, dryRun bool
 		return fmt.Errorf("failed to get extra clients: %w", err)
 	}
 
-	if len(missing) == 0 && len(extra) == 0 {
-		fmt.Fprintln(vikingCli.Out, "Machines are already in sync.")
+	networkExists, err := swarm.NetworkExists(ctx, dockerhelper.VikingNetworkName)
+	if err != nil {
+		return fmt.Errorf("failed to check if network exists: %w", err)
+	}
+
+	if len(missing) == 0 && len(extra) == 0 && networkExists {
+		fmt.Fprintln(vikingCli.Out, "Machines are ready.")
 		return nil
 	}
 
@@ -101,6 +105,10 @@ func runApply(ctx context.Context, vikingCli *command.Cli, yes bool, dryRun bool
 
 	if len(extra) > 0 {
 		message += fmt.Sprintf("  - Remove the following nodes from the Swarm: %s\n", strings.Join(extra, ", "))
+	}
+
+	if !networkExists {
+		message += fmt.Sprintf("  - Create network %s\n", dockerhelper.VikingNetworkName)
 	}
 
 	if dryRun {
@@ -137,6 +145,10 @@ func runApply(ctx context.Context, vikingCli *command.Cli, yes bool, dryRun bool
 		}
 	}
 
+	if err := swarm.CreateNetworkIfNotExists(ctx, dockerhelper.VikingNetworkName); err != nil {
+		return err
+	}
+
 	fmt.Fprintln(vikingCli.Out, "Machines are ready.")
 	return nil
 }
@@ -157,28 +169,6 @@ func checkDockerInstalled(ctx context.Context, vikingCli *command.Cli, clients [
 		return errors.New("failed to install Docker")
 	}
 
-	return nil
-}
-
-func ensureVikingNetwork(ctx context.Context, client *dockerhelper.Client) error {
-	networks, err := client.NetworkList(ctx, network.ListOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to list networks: %w", err)
-	}
-
-	for _, network := range networks {
-		if network.Name == dockerhelper.VikingNetworkName {
-			return nil
-		}
-	}
-
-	_, err = client.NetworkCreate(ctx, dockerhelper.VikingNetworkName, network.CreateOptions{
-		Driver:     "overlay",
-		Attachable: true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create network %s: %w", dockerhelper.VikingNetworkName, err)
-	}
 	return nil
 }
 

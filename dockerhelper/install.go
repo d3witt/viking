@@ -2,19 +2,20 @@ package dockerhelper
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/d3witt/viking/sshexec"
 	"golang.org/x/crypto/ssh"
 )
 
 func IsDockerInstalled(c *ssh.Client) bool {
-	return sshexec.Command(c, "docker", "-v").Run() == nil
+	cmd := sshexec.Command(c, "docker", "info")
+	return cmd.Run() == nil
 }
 
 func isSuperUser(c *ssh.Client) bool {
-	cmdStr := "id -un | grep -qx 'root' || command -v sudo || command -v su || exit 1"
-
-	return sshexec.Command(c, cmdStr).Run() == nil
+	cmd := sshexec.Command(c, "sudo", "-n", "true")
+	return cmd.Run() == nil
 }
 
 func InstallDocker(c *ssh.Client) error {
@@ -32,15 +33,55 @@ func InstallDocker(c *ssh.Client) error {
 		return fmt.Errorf("failed to install Docker: %w", err)
 	}
 
-	setupCmd := `
-        sudo systemctl enable docker.service && \
-        sudo systemctl enable containerd.service && \
-        docker run --privileged --rm tonistiigi/binfmt --install all
-    `
+	if err := configureDockerLogging(c); err != nil {
+		return fmt.Errorf("failed to configure Docker logging: %w", err)
+	}
 
-	if err := sshexec.Command(c, setupCmd).Run(); err != nil {
-		return fmt.Errorf("failed to setup Docker services and binfmt: %w", err)
+	setupCmds := [][]string{
+		{"sudo", "systemctl", "enable", "docker.service"},
+		{"sudo", "systemctl", "enable", "containerd.service"},
+		{"sudo", "systemctl", "restart", "docker.service"},
+		{"sudo", "docker", "run", "--privileged", "--rm", "tonistiigi/binfmt", "--install", "all"},
+	}
+
+	for _, args := range setupCmds {
+		cmd := sshexec.Command(c, args[0], args[1:]...)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to execute %v: %w", args, err)
+		}
 	}
 
 	return nil
+}
+
+func configureDockerLogging(c *ssh.Client) error {
+	config := `{
+	    "log-driver": "local",
+	    "log-opts": {
+	        "max-size": "100m",
+	        "max-file": "3"
+	    }
+	}`
+
+	cmd := sshexec.Command(c, "sudo", "mkdir", "-p", "/etc/docker")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to create docker config directory: %w", err)
+	}
+
+	tmpFile := "/tmp/docker-daemon.json"
+	cmd = sshexec.Command(c, "sh", "-c", fmt.Sprintf("echo '%s' > %s", escapeSingleQuotes(config), tmpFile))
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to write temp docker config: %w", err)
+	}
+
+	cmd = sshexec.Command(c, "sudo", "mv", tmpFile, "/etc/docker/daemon.json")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to move docker config: %w", err)
+	}
+
+	return nil
+}
+
+func escapeSingleQuotes(s string) string {
+	return strings.ReplaceAll(s, "'", "'\\''")
 }

@@ -48,3 +48,19 @@ func GetService(ctx context.Context, swarm *Swarm, serviceName string) (*swarm.S
 
 	return &services[0], nil
 }
+
+func ListTasks(ctx context.Context, swarm *Swarm, serviceID string) ([]swarm.Task, error) {
+	manager := swarm.findManager(ctx, nil)
+	if manager == nil {
+		return nil, fmt.Errorf("no manager node found")
+	}
+
+	tasks, err := manager.TaskList(ctx, types.TaskListOptions{
+		Filters: filters.NewArgs(filters.Arg("service", serviceID)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tasks: %w", err)
+	}
+
+	return tasks, nil
+}

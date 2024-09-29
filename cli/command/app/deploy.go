@@ -39,7 +39,17 @@ func runDeploy(ctx context.Context, vikingCli *command.Cli, image string) error 
 		return err
 	}
 
-	if err := dockerhelper.Deploy(ctx, swarm, conf.Name, image); err != nil {
+	replicas := conf.Replicas
+	if replicas == 0 {
+		replicas = 1
+	}
+
+	networks := conf.Networks
+	if len(networks) == 0 {
+		networks = []string{dockerhelper.VikingNetworkName}
+	}
+
+	if err := dockerhelper.Deploy(ctx, swarm, conf.Name, image, replicas, conf.Ports, networks, conf.Env, conf.Label); err != nil {
 		return err
 	}
 

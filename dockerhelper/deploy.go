@@ -10,7 +10,14 @@ import (
 	"github.com/docker/docker/client"
 )
 
-func Deploy(ctx context.Context, sw *Swarm, name, image string) error {
+func Deploy(
+	ctx context.Context,
+	sw *Swarm,
+	name, image string,
+	replicas uint64,
+	ports, networks []string,
+	env, label map[string]string,
+) error {
 	local, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return err
@@ -39,12 +46,23 @@ func Deploy(ctx context.Context, sw *Swarm, name, image string) error {
 
 	serviceSpec := swarm.ServiceSpec{
 		Annotations: swarm.Annotations{
-			Name: name,
+			Name:   name,
+			Labels: label,
 		},
 		TaskTemplate: swarm.TaskSpec{
 			ContainerSpec: &swarm.ContainerSpec{
 				Image: image,
+				Env:   mapToSlice(env),
 			},
+			Networks: parseNetworks(networks),
+		},
+		Mode: swarm.ServiceMode{
+			Replicated: &swarm.ReplicatedService{
+				Replicas: &replicas,
+			},
+		},
+		EndpointSpec: &swarm.EndpointSpec{
+			Ports: parsePorts(ports),
 		},
 	}
 
@@ -71,4 +89,31 @@ func Deploy(ctx context.Context, sw *Swarm, name, image string) error {
 	}
 
 	return nil
+}
+
+func mapToSlice(m map[string]string) []string {
+	result := make([]string, 0, len(m))
+	for k, v := range m {
+		result = append(result, fmt.Sprintf("%s=%s", k, v))
+	}
+	return result
+}
+
+func parsePorts(ports []string) []swarm.PortConfig {
+	result := make([]swarm.PortConfig, 0, len(ports))
+	for _, p := range ports {
+		var port swarm.PortConfig
+		fmt.Sscanf(p, "%d:%d", &port.PublishedPort, &port.TargetPort)
+		port.Protocol = swarm.PortConfigProtocolTCP // Assuming TCP by default
+		result = append(result, port)
+	}
+	return result
+}
+
+func parseNetworks(networks []string) []swarm.NetworkAttachmentConfig {
+	result := make([]swarm.NetworkAttachmentConfig, 0, len(networks))
+	for _, n := range networks {
+		result = append(result, swarm.NetworkAttachmentConfig{Target: n})
+	}
+	return result
 }

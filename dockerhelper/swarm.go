@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/api/types/system"
 )
@@ -277,6 +278,75 @@ func (s *Swarm) JoinNodes(ctx context.Context, clients []*Client) error {
 	}
 
 	return s.joinNodesWithManager(ctx, manager, clients)
+}
+
+func (s *Swarm) NetworkExists(ctx context.Context, name string) (bool, error) {
+	manager := s.findManager(ctx, nil)
+	if manager == nil {
+		return false, ErrNoManagerFound
+	}
+
+	networks, err := manager.NetworkList(ctx, network.ListOptions{})
+	if err != nil {
+		return false, fmt.Errorf("failed to list networks: %w", err)
+	}
+
+	for _, network := range networks {
+		if network.Name == name {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (s *Swarm) CreateNetworkIfNotExists(ctx context.Context, name string) error {
+	slog.InfoContext(ctx, "Creating network if not exist", "name", name)
+
+	manager := s.findManager(ctx, nil)
+	if manager == nil {
+		return ErrNoManagerFound
+	}
+
+	networks, err := manager.NetworkList(ctx, network.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list networks: %w", err)
+	}
+
+	for _, network := range networks {
+		if network.Name == name {
+			return nil
+		}
+	}
+
+	_, err = manager.NetworkCreate(ctx, name, network.CreateOptions{
+		Driver:     "overlay",
+		Attachable: true,
+	})
+	return err
+}
+
+func (s *Swarm) GetNode(ctx context.Context, id string) (swarm.Node, error) {
+	manager := s.findManager(ctx, nil)
+	if manager == nil {
+		return swarm.Node{}, fmt.Errorf("no manager node found")
+	}
+
+	nodes, err := manager.NodeList(ctx, types.NodeListOptions{
+		Filters: filters.NewArgs(filters.KeyValuePair{
+			Key:   "id",
+			Value: id,
+		}),
+	})
+	if err != nil {
+		return swarm.Node{}, fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	if len(nodes) == 0 {
+		return swarm.Node{}, nil
+	}
+
+	return nodes[0], nil
 }
 
 // ManagerNode returns a manager node or nil if none are found.
