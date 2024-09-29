@@ -24,16 +24,21 @@ func NewApplyCmd(vikingCli *command.Cli) *cli.Command {
 				Name:  "yes",
 				Usage: "Automatically confirm the sync operation without prompting.",
 			},
+			&cli.BoolFlag{
+				Name:  "dry-run",
+				Usage: "Show changes that would be made without applying them.",
+			},
 		},
 		Action: func(ctx *cli.Context) error {
 			yes := ctx.Bool("yes")
+			dryRun := ctx.Bool("dry-run")
 
-			return runApply(ctx.Context, vikingCli, yes)
+			return runApply(ctx.Context, vikingCli, yes, dryRun)
 		},
 	}
 }
 
-func runApply(ctx context.Context, vikingCli *command.Cli, yes bool) error {
+func runApply(ctx context.Context, vikingCli *command.Cli, yes bool, dryRun bool) error {
 	clients, err := vikingCli.DialMachines(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to dial machines: %w", err)
@@ -98,14 +103,24 @@ func runApply(ctx context.Context, vikingCli *command.Cli, yes bool) error {
 		message += fmt.Sprintf("  - Remove the following nodes from the Swarm: %s\n", strings.Join(extra, ", "))
 	}
 
+	if dryRun {
+		fmt.Fprintln(vikingCli.Out, "Dry run: The following actions would be performed:")
+		fmt.Fprintln(vikingCli.Out, message)
+		return nil
+	}
+
 	if !yes {
-		confirmed, err := command.PromptForConfirmation(vikingCli.In, vikingCli.Out, "Do you want to continue?")
+		fmt.Fprintln(vikingCli.Out, message)
+		confirmed, err := command.PromptForConfirmation(vikingCli.In, vikingCli.Out, "Do you want to continue with these actions?")
 		if err != nil {
 			return err
 		}
 		if !confirmed {
 			return nil
 		}
+	} else {
+		fmt.Fprintln(vikingCli.Out, "Automatically confirming the following actions:")
+		fmt.Fprintln(vikingCli.Out, message)
 	}
 
 	if len(missing) > 0 {
