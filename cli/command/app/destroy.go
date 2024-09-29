@@ -44,9 +44,6 @@ func runDestroy(ctx context.Context, vikingCli *command.Cli, yes bool) error {
 	}
 
 	sshClients := vikingCli.DialAvailableMachines(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to dial machines: %w", err)
-	}
 	defer command.CloseSSHClients(sshClients)
 
 	swarm, err := vikingCli.SwarmAvailable(ctx, sshClients)
