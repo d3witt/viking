@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-func ForEach(ctx context.Context, count int, task func(int)) {
+func Run(ctx context.Context, count int, task func(int)) {
 	var wg sync.WaitGroup
 	wg.Add(count)
 

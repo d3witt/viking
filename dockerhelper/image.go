@@ -44,7 +44,7 @@ func DistributeImage(ctx context.Context, sourceClient *Client, targetClients []
 			// Load the image on the target client
 			resp, err := c.ImageLoad(ctx, pipeReader, true)
 			if err != nil {
-				errChan <- fmt.Errorf("failed to load image on %s: %w", c.SSH.RemoteAddr(), err)
+				errChan <- fmt.Errorf("failed to load image on %s: %w", c.RemoteHost(), err)
 				return
 			}
 			defer resp.Body.Close()
@@ -52,7 +52,7 @@ func DistributeImage(ctx context.Context, sourceClient *Client, targetClients []
 			// Read and discard the response to ensure the operation completes
 			_, err = io.Copy(io.Discard, resp.Body)
 			if err != nil {
-				errChan <- fmt.Errorf("error reading response from %s: %w", c.SSH.RemoteAddr(), err)
+				errChan <- fmt.Errorf("error reading response from %s: %w", c.RemoteHost(), err)
 			}
 		}(client)
 	}

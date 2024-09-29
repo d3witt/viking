@@ -15,7 +15,8 @@ func NewCmd(vikingCli *command.Cli) *cli.Command {
 			NewRmCmd(vikingCli),
 			NewExecuteCmd(vikingCli),
 			NewCopyCmd(vikingCli),
-			NewPrepareCmd(vikingCli),
+			NewApplyCmd(vikingCli),
+			NewPurgeCmd(vikingCli),
 		},
 	}
 }

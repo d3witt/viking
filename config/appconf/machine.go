@@ -65,13 +65,15 @@ func (c *Config) AddMachine(machine ...Machine) error {
 	return c.Save()
 }
 
-func (c *Config) RemoveMachine(ip string) error {
-	_, err := c.GetMachine(ip)
-	if err != nil {
-		return err
-	}
+func (c *Config) RemoveMachines(ip ...string) error {
+	for _, ip := range ip {
+		_, err := c.GetMachine(ip)
+		if err != nil {
+			return err
+		}
 
-	delete(c.Machines, ip)
+		delete(c.Machines, ip)
+	}
 
 	return c.Save()
 }

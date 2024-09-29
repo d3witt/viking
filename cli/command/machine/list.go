@@ -44,7 +44,7 @@ func runList(ctx context.Context, vikingCli *command.Cli) error {
 	machines := conf.ListMachines()
 	statuses := make([]machineStatus, len(machines))
 
-	parallel.ForEach(ctx, len(machines), func(i int) {
+	parallel.Run(ctx, len(machines), func(i int) {
 		machine := machines[i]
 		statuses[i] = checkMachineStatus(ctx, vikingCli, machine)
 	})

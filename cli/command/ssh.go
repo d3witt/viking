@@ -2,8 +2,6 @@ package command
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
 
@@ -12,9 +10,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// DialMachines dials all hosts of a machine and returns a slice of SSH clients
-// for available hosts. If there are no available hosts, DialMachine returns
-// an error.
 func (c *Cli) DialMachines(ctx context.Context) ([]*ssh.Client, error) {
 	conf, err := c.AppConfig()
 	if err != nil {
@@ -24,23 +19,54 @@ func (c *Cli) DialMachines(ctx context.Context) ([]*ssh.Client, error) {
 	machines := conf.ListMachines()
 
 	if len(machines) == 0 {
-		return []*ssh.Client{}, nil
+		return nil, nil
 	}
 
-	var clients []*ssh.Client
-	var mu sync.Mutex
-
-	parallel.ForEach(ctx, len(machines), func(i int) {
+	clients := make([]*ssh.Client, len(machines))
+	if err := parallel.RunFirstErr(ctx, len(machines), func(i int) error {
 		m := machines[i]
 		private, passphrase, err := c.GetSSHKeyDetails(m.Key)
 		if err != nil {
-			fmt.Fprint(c.Out, err.Error())
+			return err
+		}
+
+		client, dialErr := sshexec.SSHClient(m.IP.String(), m.Port, m.User, private, passphrase)
+		clients[i] = client
+
+		return dialErr
+	}); err != nil {
+		CloseSSHClients(clients)
+		return nil, err
+	}
+
+	return clients, nil
+}
+
+func (c *Cli) DialAvailableMachines(ctx context.Context) []*ssh.Client {
+	conf, err := c.AppConfig()
+	if err != nil {
+		return nil
+	}
+
+	machines := conf.ListMachines()
+
+	if len(machines) == 0 {
+		return nil
+	}
+
+	var mu sync.Mutex
+	clients := make([]*ssh.Client, 0, len(machines))
+	parallel.Run(ctx, len(machines), func(i int) {
+		m := machines[i]
+		private, passphrase, err := c.GetSSHKeyDetails(m.Key)
+		if err != nil {
+			slog.ErrorContext(ctx, "Error getting SSH key details", "machine", m.IP.String(), "error", err)
 			return
 		}
 
 		client, dialErr := sshexec.SSHClient(m.IP.String(), m.Port, m.User, private, passphrase)
 		if dialErr != nil {
-			slog.WarnContext(ctx, "Error dialing SSH client", "err", dialErr)
+			slog.ErrorContext(ctx, "Error dialing machine", "machine", m.IP.String(), "error", dialErr)
 			return
 		}
 
@@ -49,11 +75,7 @@ func (c *Cli) DialMachines(ctx context.Context) ([]*ssh.Client, error) {
 		mu.Unlock()
 	})
 
-	if len(clients) == 0 {
-		return nil, errors.New("no available hosts")
-	}
-
-	return clients, nil
+	return clients
 }
 
 func (c *Cli) DialMachine(machine string) (*ssh.Client, error) {
@@ -86,4 +108,14 @@ func (c *Cli) GetSSHKeyDetails(key string) (private, passphrase string, err erro
 	}
 
 	return k.Private, k.Passphrase, nil
+}
+
+func CloseSSHClients(clients []*ssh.Client) {
+	for _, client := range clients {
+		if client == nil {
+			continue
+		}
+
+		client.Close()
+	}
 }

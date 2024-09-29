@@ -1,7 +1,6 @@
 package machine
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -10,17 +9,13 @@ import (
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/config/appconf"
-	"github.com/d3witt/viking/dockerhelper"
-	"github.com/d3witt/viking/parallel"
-	"github.com/d3witt/viking/sshexec"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/crypto/ssh"
 )
 
 func NewAddCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "add",
-		Usage:     "Add machines to the config and join them to the Swarm",
+		Usage:     "Adds machines to the viking.toml configuration file",
 		Args:      true,
 		ArgsUsage: "[USER@]HOST[:PORT]...",
 		Flags: []cli.Flag{
@@ -29,22 +24,17 @@ func NewAddCmd(vikingCli *command.Cli) *cli.Command {
 				Aliases: []string{"k"},
 				Usage:   "SSH key name",
 			},
-			&cli.BoolFlag{
-				Name:  "config-only",
-				Usage: "Do not join the machines to the Swarm after adding",
-			},
 		},
 		Action: func(ctx *cli.Context) error {
 			hosts := ctx.Args().Slice()
 			key := ctx.String("key")
-			configOnly := ctx.Bool("config-only")
 
-			return runAdd(ctx.Context, vikingCli, hosts, key, configOnly)
+			return runAdd(vikingCli, hosts, key)
 		},
 	}
 }
 
-func runAdd(ctx context.Context, vikingCli *command.Cli, hosts []string, key string, configOnly bool) error {
+func runAdd(vikingCli *command.Cli, hosts []string, key string) error {
 	conf, err := vikingCli.AppConfig()
 	if err != nil {
 		return err
@@ -61,16 +51,12 @@ func runAdd(ctx context.Context, vikingCli *command.Cli, hosts []string, key str
 		return err
 	}
 
-	if !configOnly {
-		joinMachinesToSwarm(ctx, vikingCli, machines)
-	}
-
 	err = conf.AddMachine(machines...)
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintln(vikingCli.Out, strings.Join(hosts, ", "))
+	fmt.Fprintf(vikingCli.Out, "Machines %v added to configuration. Remember to run 'viking sync' to apply changes to the Swarm.\n", hosts)
 
 	return nil
 }
@@ -122,66 +108,4 @@ func buildMachines(hosts []string, key string) ([]appconf.Machine, error) {
 	}
 
 	return machines, nil
-}
-
-func joinMachinesToSwarm(ctx context.Context, vikingCli *command.Cli, machines []appconf.Machine) error {
-	swarm, err := vikingCli.DialSwarm(ctx)
-	if err != nil {
-		return err
-	}
-	defer swarm.Close()
-
-	sshClients := make([]*ssh.Client, len(machines))
-	defer func() {
-		for _, client := range sshClients {
-			if client != nil {
-				client.Close()
-			}
-		}
-	}()
-
-	if err := parallel.RunFirstErr(ctx, len(machines), func(i int) error {
-		m := machines[i]
-
-		private, passphrase, err := vikingCli.GetSSHKeyDetails(m.Key)
-		if err != nil {
-			return err
-		}
-
-		sshClients[i], err = sshexec.SSHClient(m.IP.String(), m.Port, m.User, private, passphrase)
-		return err
-	}); err != nil {
-		return err
-	}
-
-	if err := checkDockerInstalled(ctx, vikingCli, sshClients); err != nil {
-		return err
-	}
-
-	dockerClients := make([]*dockerhelper.Client, len(sshClients))
-	defer func() {
-		for _, client := range dockerClients {
-			if client != nil {
-				client.Close()
-			}
-		}
-	}()
-
-	if err := parallel.RunFirstErr(ctx, len(sshClients), func(i int) error {
-		client := sshClients[i]
-
-		dockerClients[i], err = dockerhelper.DialSSH(client)
-		return err
-	}); err != nil {
-		return err
-	}
-
-	if !swarm.Exists(ctx) {
-		swarm.Clients = dockerClients
-
-		fmt.Fprintln(vikingCli.Out, "Swarm does not exist. Creating a new one...")
-		return swarm.Init(ctx)
-	}
-
-	return swarm.JoinNodes(ctx, dockerClients)
 }

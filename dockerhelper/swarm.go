@@ -14,7 +14,6 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/api/types/system"
-	"golang.org/x/crypto/ssh"
 )
 
 var ErrNoManagerFound = errors.New("no manager node found or available")
@@ -29,40 +28,15 @@ func NewSwarm(clients []*Client) *Swarm {
 	}
 }
 
-func DialSwarmSSH(ctx context.Context, clients []*ssh.Client) (*Swarm, error) {
-	dockerClients := make([]*Client, len(clients))
-
-	err := parallel.RunFirstErr(ctx, len(clients), func(i int) error {
-		dockerClient, err := DialSSH(clients[i])
-		if err != nil {
-			return fmt.Errorf("%s: could not dial Docker: %w", clients[i].RemoteAddr().String(), err)
-		}
-		dockerClients[i] = dockerClient
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return NewSwarm(dockerClients), nil
-}
-
 func (s *Swarm) Close() {
 	for _, cl := range s.Clients {
 		cl.Close()
 	}
 }
 
-type SwarmStatus struct {
-	Missing  []*Client
-	Workers  []*Client
-	Managers []*Client
-}
-
 func (s *Swarm) GetClientByAddr(ip string) *Client {
 	for _, client := range s.Clients {
-		host, _, _ := net.SplitHostPort(client.SSH.RemoteAddr().String())
-		if host == ip {
+		if client.RemoteHost() == ip {
 			return client
 		}
 	}
@@ -76,7 +50,7 @@ func (s *Swarm) Exists(ctx context.Context) bool {
 	for _, cl := range s.Clients {
 		info, err := cl.Info(ctx)
 		if err != nil {
-			slog.WarnContext(ctx, "Failed to get info", "addr", cl.SSH.RemoteAddr(), "err", err)
+			slog.WarnContext(ctx, "Failed to get info", "addr", cl.RemoteHost(), "err", err)
 			continue
 		}
 
@@ -88,42 +62,82 @@ func (s *Swarm) Exists(ctx context.Context) bool {
 	return false
 }
 
-// Returns the swarm status or an error if multiple clusters are detected or other issues arise.
-func (s *Swarm) Status(ctx context.Context) (*SwarmStatus, error) {
-	slog.InfoContext(ctx, "Retrieving swarm status")
+func (s *Swarm) Validate(ctx context.Context) error {
+	slog.InfoContext(ctx, "Validating swarm")
 
-	var swarmStatus SwarmStatus
 	clusterIDs := make(map[string]struct{})
 
 	for _, cl := range s.Clients {
 		info, err := cl.Info(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get info for client %s: %w", cl.SSH.RemoteAddr(), err)
+			return fmt.Errorf("failed to get info for client %s: %w", cl.RemoteHost(), err)
 		}
 
 		if info.Swarm.Cluster != nil {
 			clusterIDs[info.Swarm.Cluster.ID] = struct{}{}
 		}
 
-		switch info.Swarm.LocalNodeState {
-		case swarm.LocalNodeStateActive:
-			if info.Swarm.ControlAvailable {
-				swarmStatus.Managers = append(swarmStatus.Managers, cl)
-			} else {
-				swarmStatus.Workers = append(swarmStatus.Workers, cl)
-			}
-		case swarm.LocalNodeStateInactive:
-			swarmStatus.Missing = append(swarmStatus.Missing, cl)
-		default:
-			return nil, fmt.Errorf("unknown swarm state '%s' for client %s", info.Swarm.LocalNodeState, cl.SSH.RemoteAddr())
+		if info.Swarm.LocalNodeState != swarm.LocalNodeStateInactive && info.Swarm.LocalNodeState != swarm.LocalNodeStateActive {
+			return fmt.Errorf("local node state of %s is not inactive or active: %s", cl.RemoteHost(), info.Swarm.LocalNodeState)
 		}
 	}
 
 	if len(clusterIDs) > 1 {
-		return nil, fmt.Errorf("multiple swarm clusters detected: %v", clusterIDs)
+		return fmt.Errorf("multiple swarm clusters detected: %v", clusterIDs)
 	}
 
-	return &swarmStatus, nil
+	return nil
+}
+
+func (s *Swarm) GetMissingClients(ctx context.Context) ([]*Client, error) {
+	slog.InfoContext(ctx, "Getting missing clients")
+	missing := make([]*Client, 0)
+
+	for _, cl := range s.Clients {
+		info, err := cl.Info(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get info for client %s: %w", cl.RemoteHost(), err)
+		}
+
+		if info.Swarm.LocalNodeState == swarm.LocalNodeStateInactive {
+			missing = append(missing, cl)
+		}
+	}
+
+	return missing, nil
+}
+
+func (s *Swarm) GetExtraNodes(ctx context.Context) ([]string, error) {
+	slog.InfoContext(ctx, "Getting extra nodes")
+
+	manager := s.findManager(ctx, nil)
+	if manager == nil {
+		return nil, ErrNoManagerFound
+	}
+
+	nodes, err := manager.NodeList(ctx, types.NodeListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+
+	var extra []string
+	for _, node := range nodes {
+		if !s.hasClientForNode(node) {
+			extra = append(extra, node.Status.Addr)
+		}
+	}
+
+	return extra, nil
+}
+
+func (s *Swarm) hasClientForNode(node swarm.Node) bool {
+	for _, cl := range s.Clients {
+		if cl.RemoteHost() == node.Status.Addr {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *Swarm) Init(ctx context.Context) error {
@@ -132,15 +146,11 @@ func (s *Swarm) Init(ctx context.Context) error {
 	}
 
 	leader := s.Clients[0]
-	host, _, err := net.SplitHostPort(leader.SSH.RemoteAddr().String())
-	if err != nil {
-		return fmt.Errorf("failed to extract hostname for leader: %w", err)
-	}
 
-	slog.InfoContext(ctx, "Initializing swarm", "leader", host)
-	_, err = leader.SwarmInit(ctx, swarm.InitRequest{
+	slog.InfoContext(ctx, "Initializing swarm", "leader", leader.RemoteHost())
+	_, err := leader.SwarmInit(ctx, swarm.InitRequest{
 		ListenAddr:    "0.0.0.0:2377",
-		AdvertiseAddr: host,
+		AdvertiseAddr: leader.RemoteHost(),
 		Spec: swarm.Spec{
 			Annotations: swarm.Annotations{
 				Labels: map[string]string{
@@ -150,13 +160,22 @@ func (s *Swarm) Init(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to initialize swarm on leader %s: %w", host, err)
+		return fmt.Errorf("failed to initialize swarm on leader %s: %w", leader.RemoteHost(), err)
 	}
 
 	return s.joinNodesWithManager(ctx, leader, s.Clients[1:])
 }
 
-func (s *Swarm) removeNodesByAddr(ctx context.Context, manager *Client, addr string, force bool) error {
+func (s *Swarm) RemoveNodesByAddr(ctx context.Context, addr string, force bool) error {
+	manager := s.findManager(ctx, nil)
+	if manager == nil {
+		return ErrNoManagerFound
+	}
+
+	return s.removeNodesByAddrWithManager(ctx, manager, addr, force)
+}
+
+func (s *Swarm) removeNodesByAddrWithManager(ctx context.Context, manager *Client, addr string, force bool) error {
 	nodes, err := manager.NodeList(ctx, types.NodeListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list nodes: %w", err)
@@ -180,7 +199,7 @@ func (s *Swarm) removeNodesByAddr(ctx context.Context, manager *Client, addr str
 // If the node is a manager, it adjusts the swarm to maintain the desired number of managers.
 // If no manager is available, it tries to make the node leave the swarm.
 func (s *Swarm) LeaveNode(ctx context.Context, node *Client, force bool) error {
-	slog.InfoContext(ctx, "Leaving swarm", "node", node.SSH.RemoteAddr())
+	slog.InfoContext(ctx, "Leaving swarm", "node", node.RemoteHost())
 
 	info, err := node.Info(ctx)
 	if err != nil {
@@ -204,7 +223,7 @@ func (s *Swarm) LeaveNode(ctx context.Context, node *Client, force bool) error {
 		}
 
 		if err := s.demoteNode(ctx, manager, info.Swarm.NodeID); err != nil {
-			return fmt.Errorf("failed to demote node %s: %w", node.SSH.RemoteAddr(), err)
+			return fmt.Errorf("failed to demote node %s: %w", node.RemoteHost(), err)
 		}
 	}
 
@@ -221,7 +240,7 @@ func (s *Swarm) LeaveNode(ctx context.Context, node *Client, force bool) error {
 			return fmt.Errorf("failed to wait for node to be down: %w", err)
 		}
 
-		if err := s.removeNodesByAddr(ctx, manager, info.Swarm.NodeAddr, force); err != nil {
+		if err := s.removeNodesByAddrWithManager(ctx, manager, info.Swarm.NodeAddr, force); err != nil {
 			return err
 		}
 	}
@@ -233,11 +252,11 @@ func (s *Swarm) LeaveNode(ctx context.Context, node *Client, force bool) error {
 func (s *Swarm) LeaveSwarm(ctx context.Context) {
 	slog.InfoContext(ctx, "Leaving swarm")
 
-	parallel.ForEach(ctx, len(s.Clients), func(i int) {
+	parallel.Run(ctx, len(s.Clients), func(i int) {
 		client := s.Clients[i]
 		info, err := client.Info(ctx)
 		if err != nil {
-			slog.ErrorContext(ctx, "Failed to get node info", "client", client.SSH.RemoteAddr(), "error", err)
+			slog.ErrorContext(ctx, "Failed to get node info", "client", client.RemoteHost(), "error", err)
 			return
 		}
 
@@ -246,7 +265,7 @@ func (s *Swarm) LeaveSwarm(ctx context.Context) {
 		}
 
 		if err := client.SwarmLeave(ctx, true); err != nil {
-			slog.ErrorContext(ctx, "Failed to leave swarm", "client", client.SSH.RemoteAddr(), "error", err)
+			slog.ErrorContext(ctx, "Failed to leave swarm", "client", client.RemoteHost(), "error", err)
 		}
 	})
 }
@@ -342,7 +361,7 @@ func (s *Swarm) joinNodesWithManager(ctx context.Context, manager *Client, clien
 	// This will cause the worker nodes to fail to join the swarm.
 	for _, client := range clients {
 		if err := joinSwarmNode(ctx, client, managerAddr, sw.JoinTokens.Worker); err != nil {
-			slog.ErrorContext(ctx, "Could not join node to swarm", "node", client.SSH.RemoteAddr(), "error", err)
+			slog.ErrorContext(ctx, "Could not join node to swarm", "node", client.RemoteHost(), "error", err)
 		}
 	}
 
@@ -459,19 +478,14 @@ func desiredManagersCount(total int) int {
 
 // joinSwarmNode handles the actual swarm join operation for a single node.
 func joinSwarmNode(ctx context.Context, client *Client, managerAddr, joinToken string) error {
-	host, _, err := net.SplitHostPort(client.SSH.RemoteAddr().String())
-	if err != nil {
-		return fmt.Errorf("invalid manager address %s: %w", managerAddr, err)
-	}
-
 	joinRequest := swarm.JoinRequest{
 		ListenAddr:    "0.0.0.0:2377",
-		AdvertiseAddr: host,
+		AdvertiseAddr: client.RemoteHost(),
 		JoinToken:     joinToken,
 		RemoteAddrs:   []string{managerAddr},
 	}
 
-	slog.InfoContext(ctx, "Joining swarm", "machine", host, "manager", managerAddr)
+	slog.InfoContext(ctx, "Joining swarm", "machine", client.RemoteHost(), "manager", managerAddr)
 	return client.SwarmJoin(ctx, joinRequest)
 }
 

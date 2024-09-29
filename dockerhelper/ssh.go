@@ -62,10 +62,14 @@ func (c *cmdConn) SetWriteDeadline(t time.Time) error {
 
 type Client struct {
 	*client.Client
-	SSH *ssh.Client
+	remoteHost string
 
 	closed bool
 	mu     sync.Mutex
+}
+
+func (c *Client) RemoteHost() string {
+	return c.remoteHost
 }
 
 func (c *Client) Close() error {
@@ -84,12 +88,6 @@ func (c *Client) Close() error {
 		}
 	}
 
-	if c.SSH != nil {
-		if err := c.SSH.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
 	c.closed = true
 
 	if len(errs) > 0 {
@@ -99,9 +97,9 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func DialSSH(c *ssh.Client) (*Client, error) {
+func DialSSH(sshClient *ssh.Client) (*Client, error) {
 	dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
-		cmd := sshexec.Command(c, "docker", "system", "dial-stdio")
+		cmd := sshexec.Command(sshClient, "docker", "system", "dial-stdio")
 		inWriter, err := cmd.StdinPipe()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get stdin pipe: %w", err)
@@ -151,8 +149,13 @@ func DialSSH(c *ssh.Client) (*Client, error) {
 		return nil, nil
 	}
 
+	host, _, err := net.SplitHostPort(sshClient.Conn.RemoteAddr().String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to split host and port: %w", err)
+	}
+
 	return &Client{
-		Client: cl,
-		SSH:    c,
+		Client:     cl,
+		remoteHost: host,
 	}, nil
 }
