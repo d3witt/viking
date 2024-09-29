@@ -4,20 +4,17 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"sync"
 )
 
-func DistributeImage(ctx context.Context, sourceClient *Client, targetClients []*Client, imageName string) error {
-	reader, err := sourceClient.ImageSave(ctx, []string{imageName})
-	if err != nil {
-		return fmt.Errorf("failed to save image on source: %w", err)
-	}
-	defer reader.Close()
+func DistributeImage(ctx context.Context, imageReader io.ReadCloser, targetClients []*Client, imageName string) error {
+	slog.InfoContext(ctx, "Distributing image", "image", imageName)
 
 	pr, pw := io.Pipe()
 	go func() {
 		defer pw.Close()
-		_, err := io.Copy(pw, reader)
+		_, err := io.Copy(pw, imageReader)
 		if err != nil {
 			pw.CloseWithError(err)
 		}

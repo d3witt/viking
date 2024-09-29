@@ -43,6 +43,11 @@ func main() {
 		Version: version,
 		Commands: []*cli.Command{
 			app.NewInitCmd(vikingCli),
+			app.NewDeployCmd(vikingCli),
+			app.NewLogsCommand(vikingCli),
+			app.NewDestroyCmd(vikingCli),
+			app.NewInfoCmd(vikingCli),
+
 			// Often used commands
 			machine.NewExecuteCmd(vikingCli),
 			machine.NewCopyCmd(vikingCli),
