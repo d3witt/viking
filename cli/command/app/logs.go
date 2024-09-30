@@ -15,7 +15,7 @@ import (
 func NewLogsCommand(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:  "logs",
-		Usage: "Fetch the logs of a service",
+		Usage: "Fetch the logs",
 		Flags: []cli.Flag{
 			&cli.IntFlag{
 				Name:    "tail",
