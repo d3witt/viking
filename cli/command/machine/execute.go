@@ -1,7 +1,6 @@
 package machine
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -14,15 +13,9 @@ import (
 func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 	return &cli.Command{
 		Name:      "exec",
-		Aliases:   []string{"run"},
-		Usage:     "Execute command on machines",
+		Usage:     "Execute command on machine",
 		ArgsUsage: "CMD ARGS...",
 		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "machine",
-				Aliases: []string{"m"},
-				Usage:   "Machine to execute command on",
-			},
 			&cli.BoolFlag{
 				Name:    "tty",
 				Aliases: []string{"t"},
@@ -30,66 +23,26 @@ func NewExecuteCmd(vikingCli *command.Cli) *cli.Command {
 			},
 		},
 		Action: func(ctx *cli.Context) error {
-			machine := ctx.String("machine")
 			cmd := strings.Join(ctx.Args().Slice(), " ")
 			tty := ctx.Bool("tty")
 
-			return runExecute(ctx.Context, vikingCli, machine, cmd, tty)
+			return runExecute(vikingCli, cmd, tty)
 		},
 	}
 }
 
-func runExecute(ctx context.Context, vikingCli *command.Cli, machine, cmd string, tty bool) error {
-	clients, err := getExecClients(ctx, vikingCli, machine)
+func runExecute(vikingCli *command.Cli, cmd string, tty bool) error {
+	sshClient, err := vikingCli.DialMachine()
 	if err != nil {
 		return err
 	}
-	defer func() {
-		for _, client := range clients {
-			client.Close()
-		}
-	}()
+	defer sshClient.Close()
 
 	if tty {
-		return executeTTY(vikingCli, clients[0], cmd)
+		return executeTTY(vikingCli, sshClient, cmd)
 	}
 
-	return executeSequential(vikingCli, clients, cmd)
-}
-
-func getExecClients(ctx context.Context, vikingCli *command.Cli, machine string) ([]*ssh.Client, error) {
-	if machine == "" {
-		return vikingCli.DialMachines(ctx)
-	}
-	client, err := vikingCli.DialMachine(machine)
-	if err != nil {
-		return nil, err
-	}
-	return []*ssh.Client{client}, nil
-}
-
-func executeSequential(vikingCli *command.Cli, clients []*ssh.Client, cmd string) error {
-	multi := len(clients) > 1
-
-	for i, client := range clients {
-		addr := client.RemoteAddr().String()
-		prefix := ""
-		if multi {
-			prefix = fmt.Sprintf("%s: ", addr)
-		}
-
-		fmt.Fprintf(vikingCli.Out, "%sExecuting command: %s\n", prefix, cmd)
-
-		if err := executeCmd(vikingCli, client, cmd); err != nil {
-			fmt.Fprintf(vikingCli.Err, "%sError: %v\n", prefix, err)
-		}
-
-		if multi && i < len(clients)-1 {
-			fmt.Fprintln(vikingCli.Out)
-		}
-	}
-
-	return nil
+	return executeCmd(vikingCli, sshClient, cmd)
 }
 
 func executeCmd(vikingCli *command.Cli, client *ssh.Client, cmd string) error {

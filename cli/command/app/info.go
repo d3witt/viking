@@ -10,6 +10,7 @@ import (
 
 	"github.com/d3witt/viking/cli/command"
 	"github.com/d3witt/viking/dockerhelper"
+	"github.com/docker/docker/api/types/swarm"
 	"github.com/urfave/cli/v2"
 )
 
@@ -23,94 +24,8 @@ func NewInfoCmd(vikingCli *command.Cli) *cli.Command {
 	}
 }
 
-func runInfo(ctx context.Context, vikingCli *command.Cli) error {
-	var info struct {
-		AppName  string
-		Status   string
-		Image    string
-		Replicas uint64
-		Ports    []string
-		Networks []string
-		Env      map[string]string
-		Labels   map[string]string
-		Tasks    []struct {
-			IP     string
-			Status string
-		}
-	}
-
-	conf, err := vikingCli.AppConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get app config: %w", err)
-	}
-	info.AppName = conf.Name
-
-	sshClients, err := vikingCli.DialMachines(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to dial machines: %w", err)
-	}
-	defer command.CloseSSHClients(sshClients)
-
-	swarm, err := vikingCli.Swarm(ctx, sshClients)
-	if err != nil {
-		return fmt.Errorf("failed to get swarm: %w", err)
-	}
-	defer swarm.Close()
-
-	service, err := dockerhelper.GetService(ctx, swarm, conf.Name)
-	if err != nil {
-		return fmt.Errorf("failed to get service info: %w", err)
-	}
-
-	if service == nil {
-		info.Status = "Not deployed"
-	} else {
-		info.Status = "Deployed"
-		info.Image = service.Spec.TaskTemplate.ContainerSpec.Image
-		info.Replicas = *service.Spec.Mode.Replicated.Replicas
-
-		for _, port := range service.Endpoint.Ports {
-			info.Ports = append(info.Ports, fmt.Sprintf("%d:%d", port.PublishedPort, port.TargetPort))
-		}
-
-		for _, network := range service.Spec.TaskTemplate.Networks {
-			info.Networks = append(info.Networks, network.Target)
-		}
-
-		info.Env = make(map[string]string)
-		for _, env := range service.Spec.TaskTemplate.ContainerSpec.Env {
-			parts := strings.SplitN(env, "=", 2)
-			if len(parts) == 2 {
-				info.Env[parts[0]] = parts[1]
-			}
-		}
-
-		info.Labels = service.Spec.Labels
-
-		tasks, err := dockerhelper.ListTasks(ctx, swarm, service.ID)
-		if err != nil {
-			return fmt.Errorf("failed to list tasks: %w", err)
-		}
-
-		for _, task := range tasks {
-			node, _ := swarm.GetNode(ctx, task.NodeID)
-
-			info.Tasks = append(info.Tasks, struct {
-				IP     string
-				Status string
-			}{
-				IP:     node.Status.Addr,
-				Status: string(task.Status.State),
-			})
-		}
-	}
-
-	printInfo(vikingCli.Out, &info)
-	return nil
-}
-
-func printInfo(w io.Writer, info *struct {
-	AppName  string
+type appInfo struct {
+	Name     string
 	Status   string
 	Image    string
 	Replicas uint64
@@ -118,37 +33,104 @@ func printInfo(w io.Writer, info *struct {
 	Networks []string
 	Env      map[string]string
 	Labels   map[string]string
-	Tasks    []struct {
-		IP     string
-		Status string
-	}
-},
-) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+}
 
-	fmt.Fprintf(tw, "Name:\t%s\n", info.AppName)
+func runInfo(ctx context.Context, vikingCli *command.Cli) error {
+	conf, err := vikingCli.AppConfig()
+	if err != nil {
+		return fmt.Errorf("get app config: %v", err)
+	}
+
+	info := &appInfo{Name: conf.Name, Status: "Not deployed"}
+
+	sshClient, err := vikingCli.DialMachine()
+	if err != nil {
+		return fmt.Errorf("dial machine: %v", err)
+	}
+	defer sshClient.Close()
+
+	if !dockerhelper.IsDockerInstalled(sshClient) {
+		printInfo(vikingCli.Out, info)
+		return nil
+	}
+
+	dockerClient, err := dockerhelper.DialSSH(sshClient)
+	if err != nil {
+		return fmt.Errorf("dial Docker: %v", err)
+	}
+	defer dockerClient.Close()
+
+	inactive, err := dockerhelper.IsSwarmInactive(ctx, dockerClient)
+	if err != nil {
+		return fmt.Errorf("check if Swarm is inactive: %v", err)
+	}
+
+	if inactive {
+		printInfo(vikingCli.Out, info)
+		return nil
+	}
+
+	service, err := dockerhelper.GetService(ctx, dockerClient, conf.Name)
+	if err != nil {
+		return fmt.Errorf("get service info: %v", err)
+	}
+
+	if service != nil {
+		info.Status = "Deployed"
+		info.Image = service.Spec.TaskTemplate.ContainerSpec.Image
+		info.Replicas = *service.Spec.Mode.Replicated.Replicas
+		info.Ports = formatPorts(service.Endpoint.Ports)
+		info.Networks = formatNetworks(service.Spec.TaskTemplate.Networks)
+		info.Env = formatEnv(service.Spec.TaskTemplate.ContainerSpec.Env)
+		info.Labels = service.Spec.Labels
+	}
+
+	printInfo(vikingCli.Out, info)
+	return nil
+}
+
+func formatPorts(ports []swarm.PortConfig) []string {
+	var out []string
+	for _, port := range ports {
+		out = append(out, fmt.Sprintf("%d:%d", port.PublishedPort, port.TargetPort))
+	}
+	return out
+}
+
+func formatNetworks(networks []swarm.NetworkAttachmentConfig) []string {
+	var out []string
+	for _, network := range networks {
+		out = append(out, network.Target)
+	}
+	return out
+}
+
+func formatEnv(env []string) map[string]string {
+	out := make(map[string]string)
+	for _, e := range env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			out[parts[0]] = parts[1]
+		}
+	}
+	return out
+}
+
+func printInfo(w io.Writer, info *appInfo) {
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	defer tw.Flush()
+
+	fmt.Fprintf(tw, "Name:\t%s\n", info.Name)
 	fmt.Fprintf(tw, "Status:\t%s\n", info.Status)
 	if info.Status == "Deployed" {
 		fmt.Fprintf(tw, "Image:\t%s\n", info.Image)
 		fmt.Fprintf(tw, "Replicas:\t%d\n", info.Replicas)
+		printList(tw, "Ports", info.Ports)
+		printList(tw, "Networks", info.Networks)
+		printMap(tw, "Environment Variables", info.Env)
+		printMap(tw, "Labels", info.Labels)
 	}
-	tw.Flush()
-
-	if info.Status == "Deployed" {
-		printList(w, "Ports", info.Ports)
-		printList(w, "Networks", info.Networks)
-		printMap(w, "Environment Variables", info.Env)
-		printMap(w, "Labels", info.Labels)
-	}
-
-	if len(info.Tasks) > 0 {
-		fmt.Fprintln(w, "Machines:")
-		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		for _, task := range info.Tasks {
-			fmt.Fprintf(tw, "  %s\t%s\n", task.IP, task.Status)
-		}
-		tw.Flush()
-	}
+	fmt.Fprintln(tw)
 }
 
 func printList(w io.Writer, title string, items []string) {
@@ -171,9 +153,7 @@ func printMap(w io.Writer, title string, data map[string]string) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, k := range keys {
-		fmt.Fprintf(tw, "  %s:\t%s\n", k, data[k])
+		fmt.Fprintf(w, "  %s:\t%s\n", k, data[k])
 	}
-	tw.Flush()
 }

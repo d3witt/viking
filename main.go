@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"log/slog"
 	"os"
 
 	"github.com/d3witt/viking/cli/command"
@@ -25,16 +24,11 @@ func main() {
 		return
 	}
 
-	cmdLogger := slog.New(command.NewCmdLogHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
-
 	vikingCli := &command.Cli{
-		Config:    c,
-		In:        streams.StdIn,
-		Out:       streams.StdOut,
-		Err:       streams.StdErr,
-		CmdLogger: cmdLogger,
+		Config: c,
+		In:     streams.StdIn,
+		Out:    streams.StdOut,
+		Err:    streams.StdErr,
 	}
 
 	app := &cli.App{
@@ -47,15 +41,12 @@ func main() {
 			app.NewLogsCommand(vikingCli),
 			app.NewDestroyCmd(vikingCli),
 			app.NewInfoCmd(vikingCli),
-
-			// Often used commands
+			machine.NewPurgeCmd(vikingCli),
 			machine.NewExecuteCmd(vikingCli),
 			machine.NewCopyCmd(vikingCli),
-			machine.NewApplyCmd(vikingCli),
 
 			// Other commands
 			key.NewCmd(vikingCli),
-			machine.NewCmd(vikingCli),
 			cfg.NewConfigCmd(vikingCli),
 		},
 		Suggest:   true,

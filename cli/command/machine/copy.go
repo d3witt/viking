@@ -1,12 +1,8 @@
 package machine
 
 import (
-	"bytes"
-	"context"
 	"fmt"
 	"io"
-	"os"
-	"path"
 	"strings"
 	"time"
 
@@ -22,176 +18,93 @@ func NewCopyCmd(vikingCli *command.Cli) *cli.Command {
 		Name:      "copy",
 		Aliases:   []string{"cp"},
 		Usage:     "Copy files/folders between local and remote machine",
-		ArgsUsage: "[remote|IP]:SRC_PATH DEST_PATH | SRC_PATH [remote|IP]:DEST_PATH",
+		ArgsUsage: "SRC_PATH DEST_PATH",
+		Description: `
+Copy files/folders between a machine and the local filesystem.
+Use ':' to specify a path on the remote machine.
+
+Examples:
+		viking machine cp /path/to/file.txt :remote/path
+		viking machine cp :remote/path/file.txt /local/path`,
 		Action: func(ctx *cli.Context) error {
 			args := ctx.Args()
 			if args.Len() != 2 {
 				return cli.ShowCommandHelp(ctx, "copy")
 			}
-			return runCopy(ctx.Context, vikingCli, args.Get(0), args.Get(1))
+			return runCopy(vikingCli, args.Get(0), args.Get(1))
 		},
 	}
 }
 
-func runCopy(ctx context.Context, vikingCli *command.Cli, from, to string) error {
+func runCopy(vikingCli *command.Cli, from, to string) error {
 	fromMachine, fromPath := parseMachinePath(from)
 	toMachine, toPath := parseMachinePath(to)
 
 	if fromMachine == "" && toMachine == "" {
-		return fmt.Errorf("at least one path must contain machine name")
+		return fmt.Errorf("at least one path must be on the remote machine (prefixed with ':')")
 	}
 
 	if fromMachine != "" && toMachine != "" {
 		return fmt.Errorf("cannot copy between two remote machines")
 	}
 
-	clients, err := dialCopyMachines(ctx, vikingCli, fromMachine, toMachine)
+	client, err := vikingCli.DialMachine()
 	if err != nil {
 		return err
 	}
-	defer func() {
-		for _, client := range clients {
-			client.Close()
-		}
-	}()
+	defer client.Close()
 
 	if fromMachine != "" {
-		return copyFromRemote(vikingCli, fromPath, toPath, clients...)
+		return copyFromRemote(vikingCli, client, fromPath, toPath)
 	}
-	return copyToRemote(vikingCli, fromPath, toPath, clients...)
+	return copyToRemote(vikingCli, client, fromPath, toPath)
 }
 
-func dialCopyMachines(ctx context.Context, vikingCli *command.Cli, fromMachine, toMachine string) ([]*ssh.Client, error) {
-	machine := fromMachine + toMachine
-	if strings.EqualFold(machine, "remote") {
-		return vikingCli.DialMachines(ctx)
-	} else {
-		client, err := vikingCli.DialMachine(machine)
-		if err != nil {
-			return nil, err
-		}
-		return []*ssh.Client{client}, nil
-	}
-}
-
-func copyToRemote(vikingCli *command.Cli, from, to string, clients ...*ssh.Client) error {
+func copyToRemote(vikingCli *command.Cli, client *ssh.Client, from, to string) error {
 	data, err := archive.Tar(from)
 	if err != nil {
 		return err
 	}
 
-	// Create a temporary file to store the tar archive
-	tmpFile, err := os.CreateTemp("", "archive-*.tar")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmpFile.Name())
+	bar := copyProgressBar(
+		vikingCli.Out,
+		-1,
+		fmt.Sprintf("Sending to %s", client.RemoteAddr()),
+	)
 
-	// Write the tar archive to the temporary file
-	written, err := io.Copy(tmpFile, data)
-	if err != nil {
-		return err
-	}
+	reader := io.TeeReader(data, bar)
 
-	// Close the temporary file to flush the data
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
+	err = archive.UntarRemote(client, to, reader)
+	bar.Finish()
 
-	var errorMessages []string
-
-	for _, client := range clients {
-		// Open the temporary file for reading
-		tmpFile, err := os.Open(tmpFile.Name())
-		if err != nil {
-			errorMessages = append(errorMessages, fmt.Sprintf("Error opening temporary file: %v", err))
-			continue
-		}
-
-		bar := copyProgressBar(
-			vikingCli.Out,
-			written,
-			fmt.Sprintf("Sending to %s", client.RemoteAddr()),
-		)
-
-		// Create a multi-reader to read from the file and update the progress bar
-		reader := io.TeeReader(tmpFile, bar)
-
-		if err := archive.UntarRemote(client, to, reader); err != nil {
-			errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
-		}
-
-		tmpFile.Close()
-		bar.Finish()
-	}
-
-	printCopyStatus(vikingCli.Out, len(clients), errorMessages)
-
-	return nil
+	return err
 }
 
-func copyFromRemote(vikingCli *command.Cli, from, to string, clients ...*ssh.Client) error {
-	var errorMessages []string
-
-	for _, client := range clients {
-		dest := to
-		if len(clients) > 1 {
-			dest = path.Join(to, client.RemoteAddr().String())
-		}
-
-		data, err := archive.TarRemote(client, from)
-		if err != nil {
-			errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
-			continue
-		}
-
-		bar := copyProgressBar(
-			vikingCli.Out,
-			-1,
-			fmt.Sprintf("Receiving from %s", client.RemoteAddr()),
-		)
-
-		reader := io.TeeReader(data, bar)
-
-		buf := new(bytes.Buffer)
-		_, err = buf.ReadFrom(reader)
-		if err != nil {
-			errorMessages = append(errorMessages, fmt.Sprintf("%s: %v", client.RemoteAddr().String(), err))
-			continue
-		}
-
-		if err := archive.Untar(buf, dest); err != nil {
-			errorMessages = append(errorMessages, fmt.Sprintf("Error untar to %s: %v", dest, err))
-		}
-
-		bar.Finish()
+func copyFromRemote(vikingCli *command.Cli, client *ssh.Client, from, to string) error {
+	data, err := archive.TarRemote(client, from)
+	if err != nil {
+		return err
 	}
 
-	printCopyStatus(vikingCli.Out, len(clients), errorMessages)
+	bar := copyProgressBar(
+		vikingCli.Out,
+		-1,
+		fmt.Sprintf("Receiving from %s", client.RemoteAddr()),
+	)
 
-	return nil
+	reader := io.TeeReader(data, bar)
+
+	err = archive.Untar(reader, to)
+	bar.Finish()
+
+	return err
 }
 
 func parseMachinePath(fullPath string) (machine, path string) {
-	if strings.Contains(fullPath, ":") {
-		parts := strings.SplitN(fullPath, ":", 2)
-		return parts[0], parts[1]
+	if strings.HasPrefix(fullPath, ":") {
+		return "remote", strings.TrimPrefix(fullPath, ":")
 	}
-
 	return "", fullPath
-}
-
-func printCopyStatus(out io.Writer, total int, errorMessages []string) {
-	errCount := len(errorMessages)
-
-	fmt.Fprintf(out, "Success: %d, Errors: %d\n", total-errCount, errCount)
-
-	if len(errorMessages) > 0 {
-		fmt.Fprintln(out, "Error details:")
-		for _, message := range errorMessages {
-			fmt.Fprintln(out, message)
-		}
-	}
 }
 
 func copyProgressBar(out io.Writer, maxBytes int64, message string) *progressbar.ProgressBar {

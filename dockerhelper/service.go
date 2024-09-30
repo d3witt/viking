@@ -3,39 +3,15 @@ package dockerhelper
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/swarm"
+	"github.com/docker/docker/client"
 )
 
-func ServiceLogs(ctx context.Context, swarm *Swarm, service string, options container.LogsOptions) (io.ReadCloser, error) {
-	manager := swarm.findManager(ctx, nil)
-	if manager == nil {
-		return nil, fmt.Errorf("no manager node found")
-	}
-
-	return manager.ServiceLogs(ctx, service, options)
-}
-
-func RemoveService(ctx context.Context, swarm *Swarm, service string) error {
-	manager := swarm.findManager(ctx, nil)
-	if manager == nil {
-		return fmt.Errorf("no manager node found")
-	}
-
-	return manager.ServiceRemove(ctx, service)
-}
-
-func GetService(ctx context.Context, swarm *Swarm, serviceName string) (*swarm.Service, error) {
-	manager := swarm.findManager(ctx, nil)
-	if manager == nil {
-		return nil, fmt.Errorf("no manager node found")
-	}
-
-	services, err := manager.ServiceList(ctx, types.ServiceListOptions{
+func GetService(ctx context.Context, remote *client.Client, serviceName string) (*swarm.Service, error) {
+	services, err := remote.ServiceList(ctx, types.ServiceListOptions{
 		Filters: filters.NewArgs(filters.Arg("name", serviceName)),
 	})
 	if err != nil {
@@ -49,13 +25,8 @@ func GetService(ctx context.Context, swarm *Swarm, serviceName string) (*swarm.S
 	return &services[0], nil
 }
 
-func ListTasks(ctx context.Context, swarm *Swarm, serviceID string) ([]swarm.Task, error) {
-	manager := swarm.findManager(ctx, nil)
-	if manager == nil {
-		return nil, fmt.Errorf("no manager node found")
-	}
-
-	tasks, err := manager.TaskList(ctx, types.TaskListOptions{
+func ListTasks(ctx context.Context, remote *client.Client, serviceID string) ([]swarm.Task, error) {
+	tasks, err := remote.TaskList(ctx, types.TaskListOptions{
 		Filters: filters.NewArgs(filters.Arg("service", serviceID)),
 	})
 	if err != nil {

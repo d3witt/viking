@@ -49,10 +49,6 @@ func parseConfig(filename string) (Config, error) {
 		}
 	}
 
-	if cfg.Machines == nil {
-		cfg.Machines = make(map[string]Machine)
-	}
-
 	return cfg, err
 }
 

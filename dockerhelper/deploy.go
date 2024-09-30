@@ -12,7 +12,7 @@ import (
 
 func Deploy(
 	ctx context.Context,
-	sw *Swarm,
+	remote *client.Client,
 	name, image string,
 	replicas uint64,
 	ports, networks []string,
@@ -30,16 +30,11 @@ func Deploy(
 	}
 	defer reader.Close()
 
-	if err := DistributeImage(ctx, reader, sw.Clients, image); err != nil {
+	if err := DistributeImage(ctx, local, remote, image); err != nil {
 		return err
 	}
 
-	manager := sw.findManager(ctx, nil)
-	if manager == nil {
-		return fmt.Errorf("no manager node found")
-	}
-
-	services, err := manager.ServiceList(ctx, types.ServiceListOptions{})
+	services, err := remote.ServiceList(ctx, types.ServiceListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list services: %w", err)
 	}
@@ -76,13 +71,13 @@ func Deploy(
 
 	if existingService != nil {
 		slog.InfoContext(ctx, "Updating existing service", "name", name)
-		_, err := manager.ServiceUpdate(ctx, existingService.ID, existingService.Version, serviceSpec, types.ServiceUpdateOptions{})
+		_, err := remote.ServiceUpdate(ctx, existingService.ID, existingService.Version, serviceSpec, types.ServiceUpdateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to update service: %w", err)
 		}
 	} else {
 		slog.InfoContext(ctx, "Creating new service", "name", name)
-		_, err := manager.ServiceCreate(ctx, serviceSpec, types.ServiceCreateOptions{})
+		_, err := remote.ServiceCreate(ctx, serviceSpec, types.ServiceCreateOptions{})
 		if err != nil {
 			return fmt.Errorf("failed to create service: %w", err)
 		}

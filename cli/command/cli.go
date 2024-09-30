@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"strings"
 	"text/tabwriter"
@@ -15,10 +14,9 @@ import (
 )
 
 type Cli struct {
-	Config    userconf.Config
-	Out, Err  *streams.Out
-	In        *streams.In
-	CmdLogger *slog.Logger
+	Config   userconf.Config
+	Out, Err *streams.Out
+	In       *streams.In
 }
 
 func (c *Cli) AppConfig() (appconf.Config, error) {

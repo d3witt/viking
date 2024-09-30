@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/d3witt/viking/sshexec"
@@ -60,44 +59,7 @@ func (c *cmdConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-type Client struct {
-	*client.Client
-	remoteHost string
-
-	closed bool
-	mu     sync.Mutex
-}
-
-func (c *Client) RemoteHost() string {
-	return c.remoteHost
-}
-
-func (c *Client) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.closed {
-		return nil
-	}
-
-	var errs []error
-
-	if c.Client != nil {
-		if err := c.Client.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	c.closed = true
-
-	if len(errs) > 0 {
-		return fmt.Errorf("errors closing client: %v", errs)
-	}
-
-	return nil
-}
-
-func DialSSH(sshClient *ssh.Client) (*Client, error) {
+func DialSSH(sshClient *ssh.Client) (*client.Client, error) {
 	dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		cmd := sshexec.Command(sshClient, "docker", "system", "dial-stdio")
 		inWriter, err := cmd.StdinPipe()
@@ -144,18 +106,5 @@ func DialSSH(sshClient *ssh.Client) (*Client, error) {
 		clientOpts = append(clientOpts, client.WithAPIVersionNegotiation())
 	}
 
-	cl, err := client.NewClientWithOpts(clientOpts...)
-	if err != nil {
-		return nil, nil
-	}
-
-	host, _, err := net.SplitHostPort(sshClient.Conn.RemoteAddr().String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to split host and port: %w", err)
-	}
-
-	return &Client{
-		Client:     cl,
-		remoteHost: host,
-	}, nil
+	return client.NewClientWithOpts(clientOpts...)
 }

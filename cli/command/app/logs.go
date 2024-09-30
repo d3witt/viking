@@ -47,17 +47,17 @@ func runLogs(ctx context.Context, vikingCli *command.Cli, tail int, since string
 		return err
 	}
 
-	sshClients, err := vikingCli.DialMachines(ctx)
+	sshClient, err := vikingCli.DialMachine()
 	if err != nil {
-		return err
+		return fmt.Errorf("dial machine: %v", err)
 	}
-	defer command.CloseSSHClients(sshClients)
+	defer sshClient.Close()
 
-	swarm, err := vikingCli.Swarm(ctx, sshClients)
+	dockerClient, err := dockerhelper.DialSSH(sshClient)
 	if err != nil {
-		return err
+		return fmt.Errorf("dial Docker: %v", err)
 	}
-	defer swarm.Close()
+	defer dockerClient.Close()
 
 	options := container.LogsOptions{
 		ShowStdout: true,
@@ -76,7 +76,7 @@ func runLogs(ctx context.Context, vikingCli *command.Cli, tail int, since string
 		}
 	}
 
-	reader, err := dockerhelper.ServiceLogs(ctx, swarm, conf.Name, options)
+	reader, err := dockerClient.ServiceLogs(ctx, conf.Name, options)
 	if err != nil {
 		return err
 	}

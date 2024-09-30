@@ -43,17 +43,20 @@ func runDestroy(ctx context.Context, vikingCli *command.Cli, yes bool) error {
 		}
 	}
 
-	sshClients := vikingCli.DialAvailableMachines(ctx)
-	defer command.CloseSSHClients(sshClients)
-
-	swarm, err := vikingCli.SwarmAvailable(ctx, sshClients)
+	sshClient, err := vikingCli.DialMachine()
 	if err != nil {
-		return fmt.Errorf("failed to get swarm: %w", err)
+		return err
 	}
-	defer swarm.Close()
+	defer sshClient.Close()
 
-	if err := dockerhelper.RemoveService(ctx, swarm, conf.Name); err != nil {
-		return fmt.Errorf("failed to remove service: %w", err)
+	dockerClient, err := dockerhelper.DialSSH(sshClient)
+	if err != nil {
+		return err
+	}
+	defer dockerClient.Close()
+
+	if err := dockerClient.ServiceRemove(ctx, conf.Name); err != nil {
+		return fmt.Errorf("failed to remove service %s: %w", conf.Name, err)
 	}
 
 	fmt.Fprintf(vikingCli.Out, "App %s destroyed and removed from the Swarm.\n", conf.Name)

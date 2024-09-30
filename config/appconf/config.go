@@ -5,19 +5,19 @@ import (
 )
 
 type Config struct {
-	Name     string             `toml:"name"`
-	Machines map[string]Machine `toml:"machines"`
-	Replicas uint64             `toml:"replicas,omitempty"`
-	Ports    []string           `toml:"ports,omitempty"`
-	Env      map[string]string  `toml:"env,omitempty"`
-	Networks []string           `toml:"networks,omitempty"`
-	Label    map[string]string  `toml:"label,omitempty"`
+	Name     string            `toml:"name"`
+	Machine  Machine           `toml:"machines"`
+	Replicas uint64            `toml:"replicas,omitempty"`
+	Ports    []string          `toml:"ports,omitempty"`
+	Env      map[string]string `toml:"env,omitempty"`
+	Networks []string          `toml:"networks,omitempty"`
+	Label    map[string]string `toml:"label,omitempty"`
 }
 
 func defaultConfig(name string) Config {
 	return Config{
-		Name:     name,
-		Machines: map[string]Machine{},
+		Name:    name,
+		Machine: Machine{},
 	}
 }
 
